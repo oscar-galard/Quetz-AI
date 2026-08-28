@@ -1,86 +1,9 @@
+from quetz import config
 import argparse
 import os
 import sys
 from langchain_core.messages import HumanMessage
-from quetz import config
 from quetz.agent import build_graph
-
-def planning_phase(task_text: str) -> list:
-    """Interactively draft and approve a plan with the user before executing the graph."""
-    from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-    from quetz.agent import get_llm
-    
-    print("🧠 Drafting proposed plan...")
-    
-    planning_sys_prompt = SystemMessage(content=(
-        "You are Quetz-AI, a Unix programming agent.\n"
-        "Before writing any code or executing tools, you must formulate a structured, "
-        "step-by-step action plan to accomplish the user's task.\n"
-        "Explain which files you will read, write, or modify, and how you will verify each change.\n"
-        "Present your plan under the header '# PROPOSED PLAN'."
-    ))
-    
-    messages = [planning_sys_prompt, HumanMessage(content=task_text)]
-    llm = get_llm()
-    
-    while True:
-        # Capture the conversation history length at the start of this generation/refinement turn
-        turn_messages_len = len(messages)
-        attempts = 0
-        max_attempts = 5
-        
-        while True:
-            response = llm.invoke(messages)
-            plan_content = response.content
-            
-            # If the response is extremely short (e.g. ":" or "a" or less than 30 characters),
-            # it is invalid. We append it and a request for correction to messages and retry.
-            if len(plan_content.strip()) < 30 and attempts < max_attempts:
-                attempts += 1
-                print(f"⚠️  Received short/invalid plan response from LLM (content: {repr(plan_content)}), retrying self-correction (attempt {attempts}/{max_attempts})...")
-                messages.append(AIMessage(content=plan_content))
-                messages.append(HumanMessage(content=(
-                    "The plan you formulated is too short or invalid. "
-                    "Please formulate a complete, structured, step-by-step action plan to accomplish the user's task. "
-                    "Present your plan under the header '# PROPOSED PLAN'."
-                )))
-                continue
-            
-            # If we got a valid response (or hit max_attempts), revert messages of the current turn back
-            # to hide the intermediate self-correction messages from the final conversational context
-            if len(messages) > turn_messages_len:
-                messages = messages[:turn_messages_len]
-            break
-            
-        print("\n" + "="*80)
-        print(plan_content)
-        print("="*80 + "\n")
-        
-        if not config.INTERACTIVE_MODE:
-            # If not in interactive mode, auto-approve the plan
-            messages.append(AIMessage(content=plan_content))
-            messages.append(HumanMessage(content="Plan auto-approved. Please proceed."))
-            break
-            
-        print("Do you approve this plan? [Y]es, [n]o (abort), or type your feedback to refine it: ", end="", flush=True)
-        user_input = input().strip()
-        
-        if user_input.lower() in ("y", "yes", ""):
-            messages.append(AIMessage(content=plan_content))
-            messages.append(HumanMessage(content="Plan approved. Please proceed with the implementation using the available tools."))
-            print("\n🚀 Plan approved. Executing agent...")
-            break
-        elif user_input.lower() in ("n", "no"):
-            print("\n❌ Task aborted by user.")
-            sys.exit(0)
-        else:
-            # User provided feedback to refine the plan
-            print("\n🔄 Refining plan based on feedback...")
-            messages.append(AIMessage(content=plan_content))
-            messages.append(HumanMessage(content=f"Please refine the plan with this feedback: {user_input}"))
-            
-    # Return the conversation history up to the approved plan, removing the planning_sys_prompt
-    return [m for m in messages if m != planning_sys_prompt]
 
 GREEN = "\033[38;5;46m"
 CYAN = "\033[38;5;51m"
@@ -167,18 +90,23 @@ def main() -> None:
         
     print(f"📋 Task: {task_text}\n")
 
-    # Run the interactive/auto planning phase first
-    planned_messages = planning_phase(task_text)
+    # Initialize the isolated AgentState
+    initial_state = {
+        "task": task_text,
+        "plan": "",
+        "messages": [],
+        "iteration": 0,
+        "review_feedback": "",
+        "is_approved": False,
+    }
 
     app = build_graph()
 
-    initial_state = {
-        "messages": planned_messages,
-        "iteration": 0,
-    }
+    # Pass configuration to correct child runnable spans in LangSmith
+    run_config = {"run_name": "Quetz_Execution"}
 
     # Run graph execution. The agent and tool nodes stream their progress in real-time.
-    for update in app.stream(initial_state, stream_mode="updates"):
+    for update in app.stream(initial_state, config=run_config, stream_mode="updates"):
         pass
 
     print("\n🎯 Mission Complete!.")
