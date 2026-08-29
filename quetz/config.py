@@ -5,6 +5,11 @@ WORKSPACE_DIR = "."
 MAX_ITERATIONS = 25
 INTERACTIVE_MODE = False
 VERBOSE = False
+MODE = "local"
+LOCAL_MODEL = "qwen3-coder_IQ4XS:latest"
+CLOUD_MODEL = "gpt-4o"
+CLOUD_API_KEY = ""
+CLOUD_BASE_URL = None
 MODEL_NAME = "qwen3-coder_IQ4XS:latest"
 NO_CONTEXT = False
 
@@ -58,7 +63,17 @@ def load_dotenv(dotenv_path: str = None) -> None:
 
 # Load env variables on startup
 load_dotenv()
-MODEL_NAME = os.environ.get("QUETZ_MODEL", MODEL_NAME)
+
+MODE = os.environ.get("MODE", "local").lower()
+LOCAL_MODEL = os.environ.get("LOCAL_MODEL", os.environ.get("QUETZ_MODEL", "qwen3-coder_IQ4XS:latest"))
+CLOUD_MODEL = os.environ.get("CLOUD_MODEL", "gpt-4o")
+CLOUD_API_KEY = os.environ.get("CLOUD_API_KEY", "")
+CLOUD_BASE_URL = os.environ.get("CLOUD_BASE_URL", "").strip() or None
+
+if MODE == "cloud":
+    MODEL_NAME = CLOUD_MODEL
+else:
+    MODEL_NAME = LOCAL_MODEL
 
 # Map LANGSMITH_* environment variables to LANGCHAIN_* equivalents for LangChain/LangSmith SDK compatibility
 if os.environ.get("LANGSMITH_TRACING", "").lower() == "true":

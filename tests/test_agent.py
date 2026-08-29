@@ -44,11 +44,11 @@ class TestAgentFallbackParser(unittest.TestCase):
         self.assertEqual(result[0]["args"], {"file_path": "hello.txt", "content": "world"})
 
 class TestAgentSummarizeNode(unittest.TestCase):
-    @patch("quetz.agent.ChatOllama")
-    def test_summarize_node_purges_messages(self, mock_chat_ollama):
+    @patch("quetz.agent.get_llm_base")
+    def test_summarize_node_purges_messages(self, mock_get_llm_base):
         # Setup mock response from LLM
         mock_llm_instance = MagicMock()
-        mock_chat_ollama.return_value = mock_llm_instance
+        mock_get_llm_base.return_value = mock_llm_instance
         mock_llm_instance.invoke.return_value = AIMessage(content="Implementation summary of activities.")
         
         # Setup initial state with more than 4 messages to trigger summarization
@@ -74,7 +74,7 @@ class TestAgentSummarizeNode(unittest.TestCase):
         result = summarize_node(state, MagicMock())
         
         # Verify LLM was invoked
-        mock_chat_ollama.assert_called_once()
+        mock_get_llm_base.assert_called_once()
         mock_llm_instance.invoke.assert_called_once()
         
         # Verify result contains the updated summary
@@ -91,13 +91,13 @@ class TestAgentSummarizeNode(unittest.TestCase):
 
 
 class TestAgentNodes(unittest.TestCase):
-    @patch("quetz.agent.ChatOllama")
+    @patch("quetz.agent.get_llm_base")
     @patch("quetz.agent.q_config")
-    def test_planner_node_runs(self, mock_q_config, mock_chat_ollama):
+    def test_planner_node_runs(self, mock_q_config, mock_get_llm_base):
         mock_q_config.MODEL_NAME = "test-model"
         mock_q_config.INTERACTIVE_MODE = False
         mock_llm_instance = MagicMock()
-        mock_chat_ollama.return_value = mock_llm_instance
+        mock_get_llm_base.return_value = mock_llm_instance
         mock_llm_instance.invoke.return_value = AIMessage(content="# PROPOSED PLAN\nThis is a plan of more than thirty characters.")
         
         state = {
@@ -114,12 +114,12 @@ class TestAgentNodes(unittest.TestCase):
         result = planner_node(state, MagicMock())
         self.assertEqual(result["plan"], "# PROPOSED PLAN\nThis is a plan of more than thirty characters.")
 
-    @patch("quetz.agent.ChatOllama")
+    @patch("quetz.agent.get_llm_base")
     @patch("quetz.agent.q_config")
-    def test_reviewer_node_runs(self, mock_q_config, mock_chat_ollama):
+    def test_reviewer_node_runs(self, mock_q_config, mock_get_llm_base):
         mock_q_config.MODEL_NAME = "test-model"
         mock_llm_instance = MagicMock()
-        mock_chat_ollama.return_value = mock_llm_instance
+        mock_get_llm_base.return_value = mock_llm_instance
         mock_llm_instance.invoke.return_value = AIMessage(content="APPROVED")
         
         state = {
@@ -165,6 +165,77 @@ class TestAgentNodes(unittest.TestCase):
         result = coder_node(state, MagicMock())
         self.assertEqual(result["iteration"], 2)
         self.assertEqual(len(result["messages"]), 1)
+
+class TestAgentLLMSelection(unittest.TestCase):
+    @patch("quetz.agent.ChatOllama")
+    @patch("quetz.agent.q_config")
+    def test_get_llm_base_local(self, mock_q_config, mock_chat_ollama):
+        mock_q_config.MODE = "local"
+        mock_q_config.MODEL_NAME = "local-model"
+        
+        from quetz.agent import get_llm_base
+        get_llm_base()
+        
+        mock_chat_ollama.assert_called_once_with(model="local-model", temperature=0.0)
+
+    @patch("langchain_openai.ChatOpenAI")
+    @patch("quetz.agent.q_config")
+    def test_get_llm_base_cloud(self, mock_q_config, mock_chat_openai):
+        mock_q_config.MODE = "cloud"
+        mock_q_config.MODEL_NAME = "cloud-model"
+        mock_q_config.CLOUD_API_KEY = "test-key"
+        mock_q_config.CLOUD_BASE_URL = "https://api.test.com"
+        
+        from quetz.agent import get_llm_base
+        get_llm_base()
+        
+        mock_chat_openai.assert_called_once_with(
+            model="cloud-model",
+            api_key="test-key",
+            base_url="https://api.test.com",
+            temperature=0.0
+        )
+
+class TestAgentToolsNode(unittest.TestCase):
+    @patch("quetz.agent.tool_map", new_callable=dict)
+    @patch("quetz.agent.q_config")
+    def test_tools_node_parallel(self, mock_q_config, mock_tool_map):
+        mock_q_config.INTERACTIVE_MODE = False
+        
+        mock_tool_1 = MagicMock()
+        mock_tool_1.invoke.return_value = "Result 1"
+        mock_tool_2 = MagicMock()
+        mock_tool_2.invoke.return_value = "Result 2"
+        
+        mock_tool_map["tool_1"] = mock_tool_1
+        mock_tool_map["tool_2"] = mock_tool_2
+        
+        last_msg = AIMessage(
+            content="",
+            tool_calls=[
+                {"name": "tool_1", "args": {"arg1": "val1"}, "id": "call_1", "type": "tool_call"},
+                {"name": "tool_2", "args": {"arg2": "val2"}, "id": "call_2", "type": "tool_call"}
+            ]
+        )
+        state = {
+            "messages": [last_msg]
+        }
+        
+        from quetz.agent import tools_node
+        result = tools_node(state, MagicMock())
+        
+        self.assertEqual(len(result["messages"]), 2)
+        
+        msg1, msg2 = result["messages"]
+        self.assertTrue(isinstance(msg1, ToolMessage))
+        self.assertEqual(msg1.content, "Result 1")
+        self.assertEqual(msg1.tool_call_id, "call_1")
+        self.assertEqual(msg1.name, "tool_1")
+        
+        self.assertTrue(isinstance(msg2, ToolMessage))
+        self.assertEqual(msg2.content, "Result 2")
+        self.assertEqual(msg2.tool_call_id, "call_2")
+        self.assertEqual(msg2.name, "tool_2")
 
 if __name__ == "__main__":
     unittest.main()

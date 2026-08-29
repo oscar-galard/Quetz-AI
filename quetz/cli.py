@@ -81,6 +81,7 @@ def main() -> None:
 
     print(f"🔨 Workspace: {config.WORKSPACE_DIR}")
     print(f"🤖 Mode: {'interactive' if config.INTERACTIVE_MODE else 'autonomous'}")
+    print(f"🧠 Model: {config.MODEL_NAME} ({config.MODE})")
     
     # LangSmith tracing status info
     tracing_enabled = os.environ.get("LANGCHAIN_TRACING_V2", "").lower() == "true"

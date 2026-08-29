@@ -6,10 +6,11 @@ import re
 from typing import Annotated, TypedDict
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage, HumanMessage, RemoveMessage
 from langchain_core.runnables import RunnableConfig
+from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_ollama import ChatOllama
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
-from quetz.tools import tools, tool_map
+from quetz.tools import tools, tool_map, read_only_tools, read_tool_map
 
 def parse_tool_call_from_text(content: str) -> list[dict] | None:
     """Try to parse a tool call from the text content if native tool calling failed."""
@@ -113,7 +114,9 @@ def build_system_prompt(plan: str = "", review_feedback: str = "") -> SystemMess
         "2. All file paths are relative to the working directory.\n"
         "3. Respect user rejections ('OPERATION REJECTED BY USER') and ask for clarification if blocked.\n"
         "4. When the entire task is complete, respond with: \"TASK COMPLETED: <summary>\" without calling any tools.\n"
-        "5. CRITICAL: You must invoke the actual tools (e.g., write_file, edit_file) to write and modify files on disk. Simply printing code or text in your chat response does NOT modify the filesystem. Do not say 'TASK COMPLETED' until you have successfully executed the tools to save all files to disk and verified them."
+        "5. CRITICAL: You must invoke the actual tools (e.g., write_file, edit_file) to write and modify files on disk. Simply printing code or text in your chat response does NOT modify the filesystem. Do not say 'TASK COMPLETED' until you have successfully executed the tools to save all files to disk and verified them.\n"
+        "6. ALWAYS prefer using read_symbol to inspect specific classes, functions, or variable blocks rather than reading entire files with read_file. This keeps your short-term context clean, avoids token-bloat, and prevents reasoning errors or hallucinations with local models.\n"
+        "7. CRITICAL: Autonomously implement all steps of the approved plan. If the plan ends with conversational questions or prompts (e.g., 'Do you want me to proceed?', 'Should I embed ASCII art or store as files?'), DO NOT repeat those questions or ask the user for confirmation. Instead, make reasonable default design choices, choose the cleanest architectural path, and write the files immediately using the tools. You are in autonomous execution mode; do not wait or ask for permission."
     )
     
     if plan:
@@ -128,32 +131,103 @@ def build_system_prompt(plan: str = "", review_feedback: str = "") -> SystemMess
         
     return SystemMessage(content=prompt_content)
 
-def get_llm() -> ChatOllama:
-    return ChatOllama(model=q_config.MODEL_NAME, temperature=0.0).bind_tools(tools)
+def get_llm_base(bind_tools=None) -> BaseChatModel:
+    """Create and return the active LLM based on MODE config, optionally bound to tools."""
+    if q_config.MODE == "cloud":
+        from langchain_openai import ChatOpenAI
+        llm = ChatOpenAI(
+            model=q_config.MODEL_NAME,
+            api_key=q_config.CLOUD_API_KEY,
+            base_url=q_config.CLOUD_BASE_URL,
+            temperature=0.0
+        )
+    else:
+        llm = ChatOllama(model=q_config.MODEL_NAME, temperature=0.0)
+        
+    if bind_tools is not None:
+        return llm.bind_tools(bind_tools)
+    return llm
+
+def get_llm() -> BaseChatModel:
+    return get_llm_base(bind_tools=tools)
 
 def planner_node(state: AgentState, config: RunnableConfig) -> dict:
     """Interactively draft and approve a plan with the user before executing the rest of the graph."""
-    from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+    from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
     
     # Check if a plan is already present
     if state.get("plan"):
         return {}
         
     task_text = state.get("task", "")
-    print("🧠 Drafting proposed plan...")
+    print("🧠 Researching workspace...", flush=True)
+    
+    # List existing files in workspace to prevent blind planning
+    try:
+        files = os.listdir(q_config.WORKSPACE_DIR)
+        # Filter out hidden files
+        files = [f for f in files if not f.startswith(".")]
+    except Exception:
+        files = []
+        
+    files_str = ", ".join(files) if files else "None"
     
     planning_sys_prompt = SystemMessage(content=(
         "You are Quetz-AI, a Unix programming agent.\n"
-        "Before writing any code or executing tools, you must formulate a structured, "
-        "step-by-step action plan to accomplish the user's task.\n"
-        "Explain which files you will read, write, or modify, and how you will verify each change.\n"
-        "Present your plan under the header '# PROPOSED PLAN'.\n"
-        "CRITICAL: Keep your plan structured and high-level. Do NOT output full source code blocks or entire file contents in your plan, as this makes the Coder lazy and causes it to hallucinate that the files are already written. The actual file writing and coding MUST be done by the Coder using tools in the next phase."
+        f"Working directory: {q_config.WORKSPACE_DIR}\n"
+        f"Existing files in workspace: [{files_str}]\n\n"
+        "Your first goal is to research the workspace to understand any existing code, dependencies, and structure relevant to the user's task.\n"
+        "Use the provided read-only tools (list_dir, read_file, search, read_symbol) to inspect files and functions.\n"
+        "Once you have gathered enough information and fully understand the codebase, stop calling tools and formulate a structured, step-by-step action plan under the header '# PROPOSED PLAN'.\n"
+        "CRITICAL: Keep your plan structured and high-level. Do NOT output full source code blocks or entire file contents in your plan, as this makes the Coder lazy. The actual file writing and coding MUST be done by the Coder using tools in the next phase."
     ))
     
     messages = [planning_sys_prompt, HumanMessage(content=task_text)]
-    llm = ChatOllama(model=q_config.MODEL_NAME, temperature=0.0)
+    llm = get_llm_base(bind_tools=read_only_tools)
     
+    research_steps = 0
+    max_research_steps = 5
+    
+    while research_steps < max_research_steps:
+        response = llm.invoke(messages, config=config)
+        
+        # Check if the model called any tools
+        if response.tool_calls:
+            messages.append(response)
+            research_steps += 1
+            
+            for tc in response.tool_calls:
+                tool_name = tc["name"]
+                tool_args = tc["args"]
+                
+                print(f"  🔍 Planner Research: Calling tool {tool_name}({tool_args})...")
+                
+                try:
+                    result_content = read_tool_map[tool_name].invoke(tool_args)
+                except Exception as e:
+                    result_content = f"Error executing tool {tool_name}: {e}"
+                
+                messages.append(ToolMessage(
+                    content=str(result_content),
+                    tool_call_id=tc["id"],
+                    name=tool_name
+                ))
+        else:
+            break
+            
+    # Force synthesis if max steps were reached
+    if research_steps >= max_research_steps:
+        print("🔍 Planner completed research phase. Synthesizing proposed plan...", flush=True)
+        messages.append(HumanMessage(content="Please synthesize your research and formulate a structured, step-by-step action plan to accomplish the user's task. Present your plan under the header '# PROPOSED PLAN'."))
+        final_llm = get_llm_base()
+        response = final_llm.invoke(messages, config=config)
+        plan_content = response.content
+    else:
+        plan_content = response.content
+
+    print("✏️ Drafting proposed plan...")
+
+    # Interactive plan review loop
     while True:
         # Capture the conversation history length at the start of this generation/refinement turn
         turn_messages_len = len(messages)
@@ -161,9 +235,6 @@ def planner_node(state: AgentState, config: RunnableConfig) -> dict:
         max_attempts = 5
         
         while True:
-            response = llm.invoke(messages, config=config)
-            plan_content = response.content
-            
             # If the response is extremely short (e.g. ":" or "a" or less than 30 characters),
             # it is invalid. We append it and a request for correction to messages and retry.
             if len(plan_content.strip()) < 30 and attempts < max_attempts:
@@ -175,6 +246,11 @@ def planner_node(state: AgentState, config: RunnableConfig) -> dict:
                     "Please formulate a complete, structured, step-by-step action plan to accomplish the user's task. "
                     "Present your plan under the header '# PROPOSED PLAN'."
                 )))
+                
+                # Fetch a fresh plan from the LLM without tools bound
+                no_tools_llm = get_llm_base()
+                response = no_tools_llm.invoke(messages, config=config)
+                plan_content = response.content
                 continue
             
             # If we got a valid response (or hit max_attempts), revert messages of the current turn back
@@ -208,7 +284,15 @@ def planner_node(state: AgentState, config: RunnableConfig) -> dict:
             messages.append(AIMessage(content=plan_content))
             messages.append(HumanMessage(content=f"Please refine the plan with this feedback: {user_input}"))
             
-    return {"plan": plan_content}
+            # Fetch refined plan
+            no_tools_llm = get_llm_base()
+            response = no_tools_llm.invoke(messages, config=config)
+            plan_content = response.content
+            
+    # Return both the final approved plan and the research history so the Coder has immediate context
+    # and doesn't have to repeat the same read-only tool calls!
+    research_messages = messages[2:]
+    return {"plan": plan_content, "messages": research_messages}
 
 def coder_node(state: AgentState, config: RunnableConfig) -> dict:
     current_iter = state.get("iteration", 0)
@@ -355,28 +439,39 @@ def tools_node(state: AgentState, config: RunnableConfig = None) -> dict:
     if not tool_calls:
         return {"messages": []}
 
-    tc = tool_calls[0]  # only one call per turn
-    tool_name = tc["name"]
-    tool_args = tc["args"]
+    tool_messages = []
+    for tc in tool_calls:
+        tool_name = tc["name"]
+        tool_args = tc["args"]
 
-    if should_ask_confirmation(tool_name) and not confirm_message(tool_name, tool_args):
-        q_config.play_alert_sound()
-        result_content = "OPERATION REJECTED BY USER. Do not retry the same edit without asking."
-        print(f"  ❌ {result_content}\n")
-    else:
-        try:
-            result_content = tool_map[tool_name].invoke(tool_args)
-            print(f"  ✅ Tool Result: {result_content}\n")
-        except Exception as e:
-            result_content = f"Error executing {tool_name}: {e}"
+        if should_ask_confirmation(tool_name) and not confirm_message(tool_name, tool_args):
+            q_config.play_alert_sound()
+            result_content = "OPERATION REJECTED BY USER. Do not retry the same edit without asking."
             print(f"  ❌ {result_content}\n")
+        else:
+            try:
+                active_tool_map = tool_map
+                if tool_name not in active_tool_map:
+                    active_tool_map = {**tool_map, **read_tool_map}
+                
+                if tool_name in active_tool_map:
+                    result_content = active_tool_map[tool_name].invoke(tool_args)
+                    print(f"  ✅ Tool Result: {result_content}\n")
+                else:
+                    result_content = f"Error: Tool {tool_name} not found."
+                    print(f"  ❌ {result_content}\n")
+            except Exception as e:
+                result_content = f"Error executing {tool_name}: {e}"
+                print(f"  ❌ {result_content}\n")
 
-    result_msg = ToolMessage(
-        content=str(result_content),
-        tool_call_id=tc["id"],
-        name=tool_name,
-    )
-    return {"messages": [result_msg]}
+        result_msg = ToolMessage(
+            content=str(result_content),
+            tool_call_id=tc["id"],
+            name=tool_name,
+        )
+        tool_messages.append(result_msg)
+
+    return {"messages": tool_messages}
 
 def reviewer_node(state: AgentState, config: RunnableConfig) -> dict:
     """Takes only the goal (plan), target specs/context, and the actual coder execution history.
@@ -420,21 +515,24 @@ def reviewer_node(state: AgentState, config: RunnableConfig) -> dict:
         f"Review the implementation now."
     ))
     
-    llm = ChatOllama(model=q_config.MODEL_NAME, temperature=0.0)
+    llm = get_llm_base()
     
     response = llm.invoke([reviewer_sys_prompt, reviewer_human_prompt], config=config)
     review_text = response.content.strip()
     
     print(f"\n📢 Review Result:\n{review_text}\n", flush=True)
     
-    if "APPROVED" in review_text.upper():
+    review_text_cleaned = review_text.strip()
+    first_word = review_text_cleaned.split()[0].upper().strip(":,.-") if review_text_cleaned.split() else ""
+    
+    if first_word == "APPROVED":
         return {"is_approved": True, "review_feedback": ""}
     else:
         q_config.play_alert_sound()
         feedback = review_text
-        if "REJECTED:" in review_text.upper():
-            idx = review_text.upper().find("REJECTED:")
-            feedback = review_text[idx + len("REJECTED:"):].strip()
+        if "REJECTED:" in review_text_cleaned.upper():
+            idx = review_text_cleaned.upper().find("REJECTED:")
+            feedback = review_text_cleaned[idx + len("REJECTED:"):].strip()
         return {"is_approved": False, "review_feedback": feedback}
 
 def should_continue(state: AgentState) -> str:
@@ -473,7 +571,7 @@ def summarize_node(state: AgentState, config: RunnableConfig) -> dict:
     # Limit the messages we pass to the summary to avoid overwhelming the LLM
     recent_messages = messages[-6:]  # Take last 6 messages
     
-    llm = ChatOllama(model=q_config.MODEL_NAME, temperature=0.0)
+    llm = get_llm_base()
     response = llm.invoke([summary_prompt] + recent_messages, config=config)
     
     # Clear the older messages to free up context
@@ -510,7 +608,6 @@ def build_graph():
         should_continue,
         {"tools": "tools", "reviewer": "reviewer"},
     )
-    builder.add_edge("tools", "coder")
     
     # Add the summarize conditional edge
     builder.add_conditional_edges(

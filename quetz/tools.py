@@ -169,3 +169,6 @@ def read_symbol(file_path: str, symbol: str) -> str:
 
 tools = [list_dir, read_file, write_file, edit_file, search, create_directory, read_symbol]
 tool_map = {t.name: t for t in tools}
+
+read_only_tools = [list_dir, read_file, search, read_symbol]
+read_tool_map = {t.name: t for t in read_only_tools}
