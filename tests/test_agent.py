@@ -1,4 +1,5 @@
 import unittest
+import os
 from unittest.mock import MagicMock, patch
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage, RemoveMessage
 from quetz.agent import parse_tool_call_from_text, summarize_node
@@ -236,6 +237,125 @@ class TestAgentToolsNode(unittest.TestCase):
         self.assertEqual(msg2.content, "Result 2")
         self.assertEqual(msg2.tool_call_id, "call_2")
         self.assertEqual(msg2.name, "tool_2")
+
+class TestAgentDebugMode(unittest.TestCase):
+    @patch("quetz.agent.get_llm_base")
+    @patch("quetz.agent.q_config")
+    def test_debug_research_node_runs(self, mock_q_config, mock_get_llm_base):
+        mock_q_config.MODEL_NAME = "test-model"
+        mock_q_config.WORKSPACE_DIR = "."
+        
+        mock_llm_instance = MagicMock()
+        mock_get_llm_base.return_value = mock_llm_instance
+        
+        # Simulating one tool call response, followed by a text response (which stops the loop)
+        mock_llm_instance.invoke.side_effect = [
+            AIMessage(content="", tool_calls=[{"name": "search", "args": {"pattern": "reviewer"}, "id": "call_1", "type": "tool_call"}]),
+            AIMessage(content="Research finished. Located quetz/agent.py.")
+        ]
+        
+        # Mocking tool invocation
+        mock_search_tool = MagicMock()
+        mock_search_tool.invoke.return_value = "line 10: reviewer_node"
+        with patch.dict("quetz.agent.read_tool_map", {"search": mock_search_tool}):
+            state = {
+                "task": "Review the reviewer node in agent.py",
+                "messages": []
+            }
+            
+            from quetz.agent import debug_research_node
+            result = debug_research_node(state, MagicMock())
+            
+            self.assertEqual(len(result["messages"]), 5) # system prompt + task, first LLM response, ToolMessage, second LLM response
+            self.assertTrue(isinstance(result["messages"][-1], AIMessage))
+            self.assertEqual(result["messages"][-1].content, "Research finished. Located quetz/agent.py.")
+
+    @patch("quetz.agent.get_llm_base")
+    @patch("quetz.agent.q_config")
+    def test_debug_reporter_node_runs(self, mock_q_config, mock_get_llm_base):
+        mock_q_config.WORKSPACE_DIR = "."
+        
+        mock_llm_instance = MagicMock()
+        mock_get_llm_base.return_value = mock_llm_instance
+        mock_llm_instance.invoke.return_value = AIMessage(content="# Quetz-AI Report\nThis is a beautiful report with a plantuml diagram.")
+        
+        state = {
+            "task": "Review the reviewer node in agent.py",
+            "messages": [HumanMessage(content="Review the reviewer node in agent.py")]
+        }
+        
+        # Ensure we delete quetz_report.md if it already exists from previous runs to isolate testing
+        report_path = "./quetz_report.md"
+        if os.path.exists(report_path):
+            os.remove(report_path)
+            
+        from quetz.agent import debug_reporter_node
+        result = debug_reporter_node(state, MagicMock())
+        
+        self.assertIn("# Quetz-AI Report", result["summary"])
+        self.assertTrue(os.path.isfile(report_path))
+        
+        # Clean up report file after verifying it was created
+        if os.path.exists(report_path):
+            os.remove(report_path)
+
+    @patch("quetz.agent.q_config")
+    def test_build_graph_debug_mode_toggling(self, mock_q_config):
+        # 1. Test Debug Mode Active
+        mock_q_config.DEBUG_MODE = True
+        from quetz.agent import build_graph
+        compiled_debug = build_graph()
+        debug_nodes = compiled_debug.get_graph().nodes
+        self.assertIn("debug_researcher", debug_nodes)
+        self.assertIn("debug_reporter", debug_nodes)
+        self.assertNotIn("planner", debug_nodes)
+        self.assertNotIn("coder", debug_nodes)
+        
+        # 2. Test Normal Coding Mode Active
+        mock_q_config.DEBUG_MODE = False
+        compiled_normal = build_graph()
+        normal_nodes = compiled_normal.get_graph().nodes
+        self.assertNotIn("debug_researcher", normal_nodes)
+        self.assertNotIn("debug_reporter", normal_nodes)
+        self.assertIn("planner", normal_nodes)
+        self.assertIn("coder", normal_nodes)
+
+class TestAgentReviewerDisabling(unittest.TestCase):
+    @patch("quetz.agent.q_config")
+    def test_should_continue_skips_reviewer(self, mock_q_config):
+        mock_q_config.NO_REVIEWER = True
+        mock_q_config.MAX_ITERATIONS = 5
+        
+        from quetz.agent import should_continue
+        
+        # Scenario 1: Last message has no tools (completed task), should skip reviewer and go directly to finish
+        state_no_tools = {
+            "messages": [AIMessage(content="Task completed successfully.")],
+            "iteration": 1
+        }
+        result_no_tools = should_continue(state_no_tools)
+        self.assertEqual(result_no_tools, "finish")
+        
+        # Scenario 2: Last message has tools, should still go to tools
+        state_with_tools = {
+            "messages": [AIMessage(content="", tool_calls=[{"name": "read_file", "args": {"file_path": "a.txt"}, "id": "1"}])],
+            "iteration": 1
+        }
+        result_with_tools = should_continue(state_with_tools)
+        self.assertEqual(result_with_tools, "tools")
+
+    @patch("quetz.agent.q_config")
+    def test_should_continue_uses_reviewer_by_default(self, mock_q_config):
+        mock_q_config.NO_REVIEWER = False
+        mock_q_config.MAX_ITERATIONS = 5
+        
+        from quetz.agent import should_continue
+        state = {
+            "messages": [AIMessage(content="Task completed successfully.")],
+            "iteration": 1
+        }
+        result = should_continue(state)
+        self.assertEqual(result, "reviewer")
 
 if __name__ == "__main__":
     unittest.main()

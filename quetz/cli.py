@@ -45,6 +45,10 @@ def main() -> None:
                         help="Maximum tool calls (default: 25).")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Show detailed tool calls and results.")
+    parser.add_argument("-g", "--debug", action="store_true",
+                        help="Run in Debug / Research Mode to write an architecture/flow report about the workspace.")
+    parser.add_argument("--no-reviewer", action="store_true",
+                        help="Disable the QA Reviewer node and directly finish task execution.")
     args = parser.parse_args()
 
     config.WORKSPACE_DIR = os.path.abspath(os.path.expanduser(args.dir))
@@ -52,6 +56,8 @@ def main() -> None:
     config.INTERACTIVE_MODE = not args.auto
     config.VERBOSE = args.verbose
     config.NO_CONTEXT = args.no_context
+    config.DEBUG_MODE = args.debug
+    config.NO_REVIEWER = args.no_reviewer
     if args.model:
         config.MODEL_NAME = args.model
     os.makedirs(config.WORKSPACE_DIR, exist_ok=True)
@@ -80,7 +86,10 @@ def main() -> None:
     print_banner()
 
     print(f"🔨 Workspace: {config.WORKSPACE_DIR}")
-    print(f"🤖 Mode: {'interactive' if config.INTERACTIVE_MODE else 'autonomous'}")
+    if config.DEBUG_MODE:
+        print(f"🐞 Mode: debug/research (Report writing mode)")
+    else:
+        print(f"🤖 Mode: {'interactive' if config.INTERACTIVE_MODE else 'autonomous'}")
     print(f"🧠 Model: {config.MODEL_NAME} ({config.MODE})")
     
     # LangSmith tracing status info

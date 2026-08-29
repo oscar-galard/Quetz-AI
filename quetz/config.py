@@ -12,6 +12,8 @@ CLOUD_API_KEY = ""
 CLOUD_BASE_URL = None
 MODEL_NAME = "qwen3-coder_IQ4XS:latest"
 NO_CONTEXT = False
+DEBUG_MODE = False
+NO_REVIEWER = False
 
 def load_dotenv(dotenv_path: str = None) -> None:
     """A minimal, dependency-free helper to load environmental variables from a .env file."""

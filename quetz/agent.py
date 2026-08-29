@@ -540,6 +540,8 @@ def should_continue(state: AgentState) -> str:
     has_tools = bool(getattr(last_msg, "tool_calls", None))
     if has_tools and state.get("iteration", 0) <= q_config.MAX_ITERATIONS:
         return "tools"
+    if q_config.NO_REVIEWER:
+        return "finish"
     return "reviewer"
 
 def should_summarize(state: AgentState) -> str:
@@ -592,34 +594,164 @@ def should_approve(state: AgentState) -> str:
         return "finish"
     return "coder"
 
+def debug_research_node(state: AgentState, config: RunnableConfig) -> dict:
+    """Uses read-only tools to recursively locate files, functions, and contexts about the target system."""
+    from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
+    
+    task_text = state.get("task", "")
+    print("\n🔍 Debug Researching Workspace...", flush=True)
+    
+    # List existing files in workspace to prevent blind mapping
+    try:
+        files = os.listdir(q_config.WORKSPACE_DIR)
+        files = [f for f in files if not f.startswith(".")]
+    except Exception:
+        files = []
+        
+    files_str = ", ".join(files) if files else "None"
+    
+    research_sys_prompt = SystemMessage(content=(
+        "You are Quetz-AI Debug Researcher.\n"
+        f"Working directory: {q_config.WORKSPACE_DIR}\n"
+        f"Existing files in workspace: [{files_str}]\n\n"
+        "Your task is to explore the codebase to find and read functions, classes, files, and architecture relevant to the user's inquiry.\n"
+        "Use the read-only tools (list_dir, read_file, search, read_symbol) to inspect symbols and lines of code.\n"
+        "Keep searching until you have identified the exact files, implementations, and dependencies related to the request.\n"
+        "Once you have gathered all relevant code, stop calling tools and output a summary of where the key components are located."
+    ))
+    
+    messages = [research_sys_prompt, HumanMessage(content=task_text)]
+    llm = get_llm_base(bind_tools=read_only_tools)
+    
+    research_steps = 0
+    max_research_steps = 10  # Give it enough steps to map complex systems
+    
+    while research_steps < max_research_steps:
+        response = llm.invoke(messages, config=config)
+        messages.append(response)
+        
+        if response.tool_calls:
+            research_steps += 1
+            
+            for tc in response.tool_calls:
+                tool_name = tc["name"]
+                tool_args = tc["args"]
+                
+                print(f"  🔍 Debug Research: Calling tool {tool_name}({tool_args})...")
+                
+                try:
+                    result_content = read_tool_map[tool_name].invoke(tool_args)
+                except Exception as e:
+                    result_content = f"Error executing tool {tool_name}: {e}"
+                
+                messages.append(ToolMessage(
+                    content=str(result_content),
+                    tool_call_id=tc["id"],
+                    name=tool_name
+                ))
+        else:
+            break
+            
+    return {"messages": messages}
+
+def debug_reporter_node(state: AgentState, config: RunnableConfig) -> dict:
+    """Takes the gathered research findings and compiles a structured Markdown + PlantUML architecture report."""
+    from langchain_core.messages import SystemMessage, HumanMessage
+    
+    print("\n📝 Generating Architecture & Flow Report...", flush=True)
+    
+    task = state.get("task", "")
+    research_messages = state.get("messages", [])
+    
+    reporter_sys_prompt = SystemMessage(content=(
+        "You are Quetz-AI Technical Architect, an expert in software design, documentation, and visualization.\n"
+        "Your task is to write a highly detailed architecture and flow report about the code/topics discovered in the research phase.\n"
+        "You must format your report in Markdown and strictly include the following sections:\n"
+        "1. Which component/node/class/function is of interest, and exactly what it does.\n"
+        "2. Names of relevant functions or classes related to the component being reviewed.\n"
+        "3. A PlantUML sequence or state diagram showing the execution flow and how the component works. Wrap it inside a ```plantuml code block.\n"
+        "4. A brief, high-impact summary of what the component does and why it's important to the system.\n\n"
+        "Formatting Constraints:\n"
+        "- Use clear headers and markdown bullet points.\n"
+        "- Ensure the PlantUML diagram uses clean notation (e.g. '@startuml', and properly maps actors, participants, or states).\n"
+        "- Do NOT use placeholders; make it complete, fully implementing all details found during research."
+    ))
+    
+    # We pass the sys prompt, the user's original task/topic, and the research history
+    llm = get_llm_base()
+    
+    # Filter only relevant content from research messages to keep context lean
+    history_summary = []
+    for msg in research_messages:
+        if isinstance(msg, HumanMessage):
+            history_summary.append(f"Inquiry: {msg.content}")
+        elif msg.content:
+            history_summary.append(f"Content: {msg.content}")
+            
+    history_text = "\n\n".join(history_summary[-15:])  # Take the last 15 elements to avoid overflowing
+    
+    prompt_with_history = HumanMessage(content=(
+        f"Original User Request: {task}\n\n"
+        f"Gathered Research Findings:\n{history_text}\n\n"
+        "Please generate the complete Markdown report now."
+    ))
+    
+    response = llm.invoke([reporter_sys_prompt, prompt_with_history], config=config)
+    report_content = response.content.strip()
+    
+    # Write the report to a file
+    report_filename = "quetz_report.md"
+    report_path = os.path.join(q_config.WORKSPACE_DIR, report_filename)
+    try:
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(report_content)
+        print(f"\n✅ Successfully saved report to: {report_path}", flush=True)
+    except Exception as e:
+        print(f"\n❌ Error saving report file: {e}", flush=True)
+        
+    print("\n" + "="*80)
+    print(report_content)
+    print("="*80 + "\n")
+    
+    return {"summary": report_content}
+
 def build_graph():
     builder = StateGraph(AgentState)
-    builder.add_node("planner", planner_node)
-    builder.add_node("coder", coder_node)
-    builder.add_node("tools", tools_node)
-    builder.add_node("reviewer", reviewer_node)
-    builder.add_node("summarize", summarize_node)
+    
+    if q_config.DEBUG_MODE:
+        builder.add_node("debug_researcher", debug_research_node)
+        builder.add_node("debug_reporter", debug_reporter_node)
+        
+        builder.add_edge(START, "debug_researcher")
+        builder.add_edge("debug_researcher", "debug_reporter")
+        builder.add_edge("debug_reporter", END)
+    else:
+        builder.add_node("planner", planner_node)
+        builder.add_node("coder", coder_node)
+        builder.add_node("tools", tools_node)
+        builder.add_node("reviewer", reviewer_node)
+        builder.add_node("summarize", summarize_node)
 
-    builder.add_edge(START, "planner")
-    builder.add_edge("planner", "coder")
-    
-    builder.add_conditional_edges(
-        "coder",
-        should_continue,
-        {"tools": "tools", "reviewer": "reviewer"},
-    )
-    
-    # Add the summarize conditional edge
-    builder.add_conditional_edges(
-        "tools",
-        should_summarize,
-        {"summarize": "summarize", "coder": "coder"},
-    )
-    builder.add_edge("summarize", "coder")
-    
-    builder.add_conditional_edges(
-        "reviewer",
-        should_approve,
-        {"coder": "coder", "finish": END},
-    )
+        builder.add_edge(START, "planner")
+        builder.add_edge("planner", "coder")
+        
+        builder.add_conditional_edges(
+            "coder",
+            should_continue,
+            {"tools": "tools", "reviewer": "reviewer", "finish": END},
+        )
+        
+        # Add the summarize conditional edge
+        builder.add_conditional_edges(
+            "tools",
+            should_summarize,
+            {"summarize": "summarize", "coder": "coder"},
+        )
+        builder.add_edge("summarize", "coder")
+        
+        builder.add_conditional_edges(
+            "reviewer",
+            should_approve,
+            {"coder": "coder", "finish": END},
+        )
     return builder.compile()

@@ -4,14 +4,66 @@ import re
 import subprocess
 from langchain_core.tools import tool
 
+def generate_tree(dir_path: str, max_depth: int, current_depth: int = 1, prefix: str = "") -> list[str]:
+    """Generates a list of strings representing a directory tree, ignoring noisy directories."""
+    if current_depth > max_depth:
+        return []
+    
+    try:
+        entries = sorted(os.listdir(dir_path))
+    except Exception as e:
+        return [f"{prefix}└── Error reading directory: {e}"]
+        
+    exclude_dirs = {".git", ".venv", "__pycache__", "node_modules", "build", "dist", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".uv"}
+    entries = [e for e in entries if e not in exclude_dirs]
+    
+    lines = []
+    for i, entry in enumerate(entries):
+        full_path = os.path.join(dir_path, entry)
+        is_last = (i == len(entries) - 1)
+        connector = "└── " if is_last else "├── "
+        
+        if os.path.isdir(full_path):
+            lines.append(f"{prefix}{connector}{entry}/")
+            new_prefix = prefix + ("    " if is_last else "│   ")
+            lines.extend(generate_tree(full_path, max_depth, current_depth + 1, new_prefix))
+        else:
+            lines.append(f"{prefix}{connector}{entry}")
+            
+    return lines
+
 @tool
-def list_dir(path: str = ".") -> str:
-    """List files and directories relative to the workspace."""
+def list_dir(path: str = ".", depth: int = 1) -> str:
+    """List files and directories relative to the workspace.
+    
+    If depth > 1, returns a visual tree representation up to the specified depth 
+    (excluding noisy folders like .git, .venv, __pycache__).
+    """
     full = os.path.join(config.WORKSPACE_DIR, path)
     if not os.path.exists(full):
         return f"Error: path does not exist: {path}"
-    entries = os.listdir(full)
-    return "\n".join(entries) if entries else "Directory is empty."
+        
+    if depth > 1:
+        tree_lines = generate_tree(full, depth)
+        if not tree_lines:
+            return "Directory is empty or all contents are ignored."
+        return "\n".join(tree_lines)
+    else:
+        try:
+            entries = sorted(os.listdir(full))
+        except Exception as e:
+            return f"Error listing directory: {e}"
+            
+        exclude_dirs = {".git", ".venv", "__pycache__", "node_modules", "build", "dist", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".uv"}
+        filtered_entries = [e for e in entries if e not in exclude_dirs]
+        
+        formatted = []
+        for entry in filtered_entries:
+            if os.path.isdir(os.path.join(full, entry)):
+                formatted.append(f"{entry}/")
+            else:
+                formatted.append(entry)
+        return "\n".join(formatted) if formatted else "Directory is empty."
 
 @tool
 def read_file(file_path: str, start_line: int = 1, end_line: int = None) -> str:
@@ -80,14 +132,34 @@ def edit_file(file_path: str, replacements: list[dict]) -> str:
     return f"OK: applied {applied} replacement(s) to {file_path}"
 
 @tool
-def search(pattern: str, path: str = ".") -> str:
-    """Recursively search for a regex pattern using grep."""
+def search(pattern: str, path: str = ".", context_lines: int = 0, case_sensitive: bool = False) -> str:
+    """Recursively search for a regex pattern using grep.
+    
+    If context_lines > 0, it includes surrounding lines of context (equivalent to grep -C).
+    Automatically excludes common ignore directories like .git, .venv, and __pycache__.
+    """
     full = os.path.join(config.WORKSPACE_DIR, path)
     if not os.path.exists(full):
         return f"Error: path does not exist: {path}"
+        
+    cmd = ["grep", "-rnI", "--color=never"]
+    
+    # Auto-exclude noisy directories
+    exclude_dirs = [".git", ".venv", "__pycache__", "node_modules", "build", "dist", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".uv"]
+    for d in exclude_dirs:
+        cmd.append(f"--exclude-dir={d}")
+        
+    if not case_sensitive:
+        cmd.append("-i")
+        
+    if context_lines > 0:
+        cmd.append(f"-C{context_lines}")
+        
+    cmd.extend([pattern, full])
+    
     try:
         result = subprocess.run(
-            ["grep", "-rnI", "--color=never", pattern, full],
+            cmd,
             capture_output=True, text=True, timeout=10
         )
         output = result.stdout.strip()
