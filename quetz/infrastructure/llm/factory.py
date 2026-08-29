@@ -8,8 +8,17 @@ from __future__ import annotations
 from quetz import config as q_config
 
 
-def build_base_chat_model(temperature: float = 0.0):
-    """Return a concrete LangChain chat model instance for the active MODE."""
+def build_base_chat_model(temperature: float | None = None):
+    """Return a concrete LangChain chat model instance for the active MODE.
+
+    ``temperature`` defaults to the configured ``TEMP``. Local (Ollama) models
+    also receive ``NUM_CTX`` (context window) and ``NUM_PREDICT`` (max output
+    tokens) so they don't hit the default 2K window and exhaust before emitting
+    a tool call.
+    """
+    if temperature is None:
+        temperature = q_config.TEMP
+
     if q_config.MODE == "cloud":
         from langchain_openai import ChatOpenAI
 
@@ -22,4 +31,9 @@ def build_base_chat_model(temperature: float = 0.0):
 
     from langchain_ollama import ChatOllama
 
-    return ChatOllama(model=q_config.MODEL_NAME, temperature=temperature)
+    return ChatOllama(
+        model=q_config.MODEL_NAME,
+        temperature=temperature,
+        num_ctx=q_config.NUM_CTX,
+        num_predict=q_config.NUM_PREDICT,
+    )

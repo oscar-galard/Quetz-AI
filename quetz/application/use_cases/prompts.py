@@ -34,7 +34,12 @@ SYSTEM_PROMPT_TEMPLATE = (
     "questions or ask the user for confirmation. Instead, make reasonable default "
     "design choices, choose the cleanest architectural path, and write the files "
     "immediately using the tools. You are in autonomous execution mode; do not wait "
-    "or ask for permission."
+    "or ask for permission.\n"
+    "8. The workspace research gathered during planning is already included in your "
+    "conversation history (file trees, contents, and search results). DO NOT "
+    "re-read files whose contents are already visible in that research context. "
+    "Start implementing the plan immediately. Only call read_file/read_symbol for "
+    "a specific snippet you genuinely still need."
 )
 
 

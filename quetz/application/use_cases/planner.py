@@ -48,8 +48,13 @@ class PlanUseCase:
         task: Task,
         workspace: str,
         existing_files: list[str],
-    ) -> str:
-        """Return the approved plan text (or raise AgentTerminated)."""
+    ) -> tuple[str, list[Turn]]:
+        """Return ``(approved_plan_text, research_context_turns)``.
+
+        The research context is the tool-call/tool-result history gathered while
+        planning. It is handed to the coder so it never repeats the same reads,
+        which is critical with small local context windows.
+        """
         self._report("🧠 Researching workspace...")
 
         messages: list[Turn] = [
@@ -86,7 +91,30 @@ class PlanUseCase:
         self._report("✏️ Drafting proposed plan...")
         plan_content = self._ensure_valid_plan(messages, plan_content)
 
-        return self._approval_loop(messages, plan_content, workspace)
+        plan = self._approval_loop(messages, plan_content, workspace)
+        # Hand the coder only a compact research feed: drop the system/task
+        # header turns and any trailing plain-text messages (the plan itself is
+        # injected by the coder system prompt), and bound both the number of
+        # turns and each tool result so we don't choke a small local window -
+        # a full window prevents the model from emitting a tool call.
+        research_context = self._compact_research(messages)
+        return plan, research_context
+
+    @staticmethod
+    def _compact_research(messages: list[Turn], max_turns: int = 6, max_content: int = 1200) -> list[Turn]:
+        feed: list[Turn] = []
+        for t in messages[2:]:
+            if t.role == "assistant":
+                if t.tool_calls:
+                    feed.append(t)
+            elif t.role == "tool":
+                content = t.content
+                if len(content) > max_content:
+                    content = content[:max_content] + "\n...[truncated]..."
+                feed.append(Turn.tool(content, t.tool_call_id or "", t.name or ""))
+            if len(feed) >= max_turns:
+                break
+        return feed
 
     # -- helpers -----------------------------------------------------------
 

@@ -102,7 +102,7 @@ def planner_node(state: AgentState, config: RunnableConfig, container: Container
         reporter=lambda text: print(text, flush=True),
     )
     try:
-        plan = uc.execute(
+        plan, research_turns = uc.execute(
             task=_new_task(state),
             workspace=q_config.WORKSPACE_DIR,
             existing_files=_existing_workspace_files(),
@@ -112,15 +112,11 @@ def planner_node(state: AgentState, config: RunnableConfig, container: Container
         print("\n❌ Task aborted by user.", flush=True)
         sys.exit(0)
 
-    print("\n" + "=" * 80)
-    print(plan)
-    print("=" * 80 + "\n", flush=True)
-    if not q_config.INTERACTIVE_MODE:
-        print("\n🚀 Plan approved. Executing agent...")
+    print("\n🚀 Plan approved. Executing agent...\n", flush=True)
 
-    # Provide the research history to the coder as immediate context.
-    # (Returns all turns; the coder uses the full message history.)
-    return {"plan": plan, "messages": []}
+    # Seed the coder with the planner's research history so it does not repeat
+    # the same reads (critical with small local context windows).
+    return {"plan": plan, "messages": turns_to_langchain(research_turns)}
 
 
 def coder_node(state: AgentState, config: RunnableConfig, container: Container) -> dict:
@@ -161,7 +157,16 @@ def coder_node(state: AgentState, config: RunnableConfig, container: Container) 
         sys.stdout.write(")")
     print(flush=True)
 
-    new_messages = [turn_to_langchain(t) for t in new_turns]
+    new_messages = []
+    for t in new_turns:
+        # Drop degenerate assistant turns (no tool call and trivial/empty
+        # content) such as "", "a", ":". Local models emit these when context
+        # is exhausted; keeping them in history poisons the next iteration and
+        # just bounces through the reviewer.
+        if not t.tool_calls and len(t.content.strip()) <= 5 and "TASK COMPLETED" not in t.content:
+            continue
+        new_messages.append(turn_to_langchain(t))
+
     return {"messages": new_messages, "iteration": current_iter + 1}
 
 

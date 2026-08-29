@@ -72,6 +72,12 @@ CLOUD_MODEL = os.environ.get("CLOUD_MODEL", "gpt-4o")
 CLOUD_API_KEY = os.environ.get("CLOUD_API_KEY", "")
 CLOUD_BASE_URL = os.environ.get("CLOUD_BASE_URL", "").strip() or None
 
+# Local-model context window / max output tokens (Ollama num_ctx / num_predict).
+# Bump NUM_CTX (e.g. to 12288) if your local model supports a larger window.
+NUM_CTX = int(os.environ.get("NUM_CTX", "8192"))
+NUM_PREDICT = int(os.environ.get("NUM_PREDICT", "2048"))
+TEMP = float(os.environ.get("TEMP", "0.0"))
+
 if MODE == "cloud":
     MODEL_NAME = CLOUD_MODEL
 else:

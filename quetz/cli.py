@@ -12,14 +12,58 @@ CYAN = "\033[38;5;51m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
 
-# Banner limpio de QUETZ-AI
-BANNER = f"""
-{GREEN}{BOLD} ██████  ██   ██ ████████ ████████ ███████{CYAN}      █████  ██ 
-██    ██ ██   ██ ██          ██    ██     {CYAN}     ██   ██ ██ 
-██    ██ ██   ██ █████       ██    ███████{CYAN}     ███████ ██ 
-██    ██ ██   ██ ██          ██         ██{CYAN}     ██   ██ ██ 
- ██████\\  █████  ████████    ██    ███████{CYAN}  ██ ██   ██ ██
-{RESET}"""
+# Corrected QUETZ-AI banner. Left block (QUETZ) is drawn with a green gradient
+# that fades along the main diagonal (bright at upper-left -> darker at
+# lower-right); right block (AI) is cyan.
+_BANNER_QUETZ = [
+    " ███  █   █ █████ █████ █████ ",
+    "█   █ █   █ █       █      █  ",
+    "█   █ █   █ ████    █     █   ",
+    "█  █  █   █ █       █    █    ",
+    " ██ █  ███  █████   █   █████ ",
+]
+_BANNER_AI = [
+    "      ███  ███ ",
+    "     █   █  █  ",
+    "     █████  █  ",
+    "     █   █  █  ",
+    "     █   █ ███ ",
+]
+
+#: 256-color green shades, bright -> dark, for the diagonal gradient.
+_GREENS = (
+    "\033[38;5;82m",  # 46
+    "\033[38;5;46m",  # 46
+    "\033[38;5;40m",  # 40
+    "\033[38;5;34m",  # 34
+    "\033[38;5;34m",  # 34
+    "\033[38;5;28m",  # 28
+    "\033[38;5;28m",  # 28
+    "\033[38;5;22m",  # 22
+    "\033[38;5;22m",  # 22
+)
+
+
+def _gradient_green(row: int, col: int) -> str:
+    # Diagonal distance from the upper-left corner drives the shade.
+    return _GREENS[min(row + col, len(_GREENS) - 1)]
+
+
+def build_banner() -> str:
+    rows = []
+    for r in range(len(_BANNER_QUETZ)):
+        left = "".join(
+            _gradient_green(r, c) + ch for c, ch in enumerate(_BANNER_QUETZ[r])
+        )
+        right = "".join(
+            CYAN + ch
+            for ch in _BANNER_AI[r]
+        )
+        rows.append(BOLD + left + BOLD + right + RESET)
+    return "\n".join(rows)
+
+
+BANNER = build_banner()
 
 def print_banner():
     print(BANNER)

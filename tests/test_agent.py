@@ -208,10 +208,15 @@ class TestAgentLLMSelection(unittest.TestCase):
     def test_build_base_chat_model_local(self, mock_q_config, mock_chat_ollama):
         mock_q_config.MODE = "local"
         mock_q_config.MODEL_NAME = "local-model"
+        mock_q_config.TEMP = 0.0
+        mock_q_config.NUM_CTX = 8192
+        mock_q_config.NUM_PREDICT = 1024
         from quetz.infrastructure.llm.factory import build_base_chat_model
 
         build_base_chat_model()
-        mock_chat_ollama.assert_called_once_with(model="local-model", temperature=0.0)
+        mock_chat_ollama.assert_called_once_with(
+            model="local-model", temperature=0.0, num_ctx=8192, num_predict=1024
+        )
 
     @patch("langchain_openai.ChatOpenAI")
     @patch("quetz.infrastructure.llm.factory.q_config")
@@ -220,6 +225,7 @@ class TestAgentLLMSelection(unittest.TestCase):
         mock_q_config.MODEL_NAME = "cloud-model"
         mock_q_config.CLOUD_API_KEY = "test-key"
         mock_q_config.CLOUD_BASE_URL = "https://api.test.com"
+        mock_q_config.TEMP = 0.0
         from quetz.infrastructure.llm.factory import build_base_chat_model
 
         build_base_chat_model()
@@ -409,6 +415,31 @@ class TestReviewerParsing(unittest.TestCase):
         # The model re-echoing the plan header must not count as a verdict.
         fb = self._review("I could not finish. APPROVED ACTION PLAN was provided but not met.")
         self.assertFalse(fb.approved)
+
+
+class TestCompactResearch(unittest.TestCase):
+    def test_bounds_turns_and_truncates_content(self):
+        from quetz.application.use_cases.planner import PlanUseCase
+        from quetz.domain.model import Turn, ToolCall
+
+        messages = [
+            Turn.system("system header"),
+            Turn.user("task"),
+            Turn.assistant(content="", tool_calls=(ToolCall("list_dir", {"depth": 1}, "1"),)),
+            Turn.tool("x" * 10000, "1", "list_dir"),
+            Turn.user("the plan text (should be dropped)"),
+            Turn.assistant(content="final plan (dropped)"),
+        ]
+        feed = PlanUseCase._compact_research(messages, max_turns=2, max_content=50)
+        # Only tool-call assistant turns and bounded tool results survive;
+        # plain text / plan visits are excluded.
+        self.assertTrue(all(t.role in ("assistant", "tool") for t in feed))
+        self.assertTrue(all(t.tool_calls or t.role == "tool" for t in feed))
+        self.assertLessEqual(len(feed), 2)
+        for t in feed:
+            if t.role == "tool":
+                self.assertIn("[truncated]", t.content)
+                self.assertLess(len(t.content), 100)
 
 
 if __name__ == "__main__":
