@@ -77,9 +77,18 @@ def summarize_node_plan(
     return _merged(summary, ""), retained
 
 
-def build_action_log(state_messages: list[Turn], snippet_len: int = 300) -> str:
-    """Render neutral turns into the 'Coder Action Log' text for the reviewer."""
+def build_action_log(state_messages: list[Turn], snippet_len: int = 300, worklog: list[str] | None = None) -> str:
+    """Render neutral turns into the 'Coder Action Log' text for the reviewer.
+
+    ``worklog`` (when present) holds durable records of executed tools that
+    survive message summarization, so the reviewer still sees all work even
+    after the raw tool messages were condensed away.
+    """
     lines: list[str] = []
+    if worklog:
+        lines.append("=== Executed Work (durable log) ===")
+        lines.extend(worklog)
+        lines.append("=== Message History ===")
     for msg in state_messages:
         if msg.is_tool_call:
             for tc in msg.tool_calls:

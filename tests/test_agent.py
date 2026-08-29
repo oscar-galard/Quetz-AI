@@ -442,5 +442,27 @@ class TestCompactResearch(unittest.TestCase):
                 self.assertLess(len(t.content), 100)
 
 
+class TestWorklog(unittest.TestCase):
+    def test_worklog_entry_renders_write(self):
+        from quetz.infrastructure.graph.nodes import _worklog_entry
+
+        entry = _worklog_entry("write_file", {"file_path": "README.md", "content": "x" * 10}, "OK: wrote README.md")
+        self.assertIn("WROTE FILE README.md (10 chars)", entry)
+
+    def test_worklog_entry_bounds_long_results(self):
+        from quetz.infrastructure.graph.nodes import _worklog_entry
+
+        entry = _worklog_entry("read_file", {"file_path": "main.py"}, "y" * 5000)
+        self.assertEqual(entry, "READ FILE main.py (content excerpt below)")
+
+    def test_build_action_log_includes_durable_worklog(self):
+        from quetz.application.use_cases.decisions import build_action_log
+
+        log = build_action_log([], worklog=["WROTE FILE README.md", "READ FILE main.py"])
+        self.assertIn("WROTE FILE README.md", log)
+        self.assertIn("READ FILE main.py", log)
+        self.assertIn("=== Executed Work (durable log) ===", log)
+
+
 if __name__ == "__main__":
     unittest.main()

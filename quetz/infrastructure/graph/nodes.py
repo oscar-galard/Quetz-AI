@@ -7,6 +7,7 @@ resides in the application layer.
 """
 from __future__ import annotations
 
+import operator
 import os
 import sys
 from typing import Annotated, TypedDict
@@ -42,6 +43,7 @@ class AgentState(TypedDict):
     review_feedback: str
     is_approved: bool
     summary: str
+    worklog: Annotated[list[str], operator.add]
 
 
 def _existing_workspace_files() -> list[str]:
@@ -112,7 +114,8 @@ def planner_node(state: AgentState, config: RunnableConfig, container: Container
         print("\n❌ Task aborted by user.", flush=True)
         sys.exit(0)
 
-    print("\n🚀 Plan approved. Executing agent...\n", flush=True)
+    if not q_config.INTERACTIVE_MODE:
+        print("\n🚀 Plan approved. Executing agent...\n", flush=True)
 
     # Seed the coder with the planner's research history so it does not repeat
     # the same reads (critical with small local context windows).
@@ -178,6 +181,7 @@ def tools_node(state: AgentState, config: RunnableConfig, container: Container) 
 
     executor = LangChainToolExecutor()
     tool_messages = []
+    worklog_entries = []
     for tc in tool_calls:
         tool_name = tc["name"]
         tool_args = tc["args"]
@@ -193,6 +197,10 @@ def tools_node(state: AgentState, config: RunnableConfig, container: Container) 
             result_content = outcome.content
             print(f"  ✅ Tool Result: {result_content}\n")
 
+        # Persist a durable record of executed work. This survives message
+        # summarization, so the reviewer can always verify what really happened.
+        worklog_entries.append(_worklog_entry(tool_name, tool_args, str(result_content)))
+
         from langchain_core.messages import ToolMessage
 
         tool_messages.append(ToolMessage(
@@ -201,13 +209,32 @@ def tools_node(state: AgentState, config: RunnableConfig, container: Container) 
             name=tool_name,
         ))
 
-    return {"messages": tool_messages}
+    return {"messages": tool_messages, "worklog": worklog_entries}
+
+
+def _worklog_entry(tool_name: str, args: dict, result: str) -> str:
+    """Render a compact, durable description of an executed tool call."""
+    res = result
+    if len(res) > 200:
+        res = res[:200] + f"... [{len(result)} chars total]"
+    if tool_name in ("write_file", "edit_file"):
+        path = args.get("file_path")
+        if tool_name == "write_file":
+            size = len(args.get("content", ""))
+            return f"WROTE FILE {path} ({size} chars)"
+        return f"EDITED FILE {path}"
+    if tool_name == "read_file":
+        return f"READ FILE {args.get('file_path')} (content excerpt below)"
+    return f"{tool_name}({args})"
 
 
 def reviewer_node(state: AgentState, config: RunnableConfig, container: Container) -> dict:
     print("\n🔍 Quetz-AI Reviewer evaluating implementation...", flush=True)
 
-    action_log = build_action_log(langchain_to_turns(state.get("messages", [])))
+    action_log = build_action_log(
+        langchain_to_turns(state.get("messages", [])),
+        worklog=state.get("worklog", []),
+    )
     uc = ReviewUseCase(llm=container.make_llm())
     feedback = uc.execute(
         task=state.get("task", ""),
