@@ -30,23 +30,27 @@ _BANNER_AI = [
     "     █   █ ███ ",
 ]
 
-#: 256-color green shades, bright -> dark, for the diagonal gradient.
+#: 256-color green shades, used so that BRIGHT green predominates. Index 0 is
+#: the brightest; higher indices are progressively darker.
 _GREENS = (
-    "\033[38;5;82m",  # 46
-    "\033[38;5;46m",  # 46
-    "\033[38;5;40m",  # 40
-    "\033[38;5;34m",  # 34
-    "\033[38;5;34m",  # 34
-    "\033[38;5;28m",  # 28
-    "\033[38;5;28m",  # 28
-    "\033[38;5;22m",  # 22
-    "\033[38;5;22m",  # 22
+    "\033[38;5;46m",  #  46 bright green (base)
+    "\033[38;5;46m",  #  46
+    "\033[38;5;82m",  #  82
+    "\033[38;5;82m",  #  82
+    "\033[38;5;40m",  #  40
+    "\033[38;5;34m",  #  34
+    "\033[38;5;28m",  #  28
+    "\033[38;5;22m",  #  22
 )
 
 
 def _gradient_green(row: int, col: int) -> str:
-    # Diagonal distance from the upper-left corner drives the shade.
-    return _GREENS[min(row + col, len(_GREENS) - 1)]
+    # Diagonal distance from the upper-left corner. We use a quadratic curve so
+    # the bright green (index 0) covers most of the block and only darkens
+    # clearly as we approach the far bottom-right corner.
+    p = (row + col) / 35.0
+    index = int(round(6.5 * p * p))
+    return _GREENS[min(index, len(_GREENS) - 1)]
 
 
 def build_banner() -> str:
@@ -154,6 +158,8 @@ def main() -> None:
         "iteration": 0,
         "review_feedback": "",
         "is_approved": False,
+        "summary": "",
+        "worklog": [],
     }
 
     set_container(make_container(interactive=config.INTERACTIVE_MODE))
@@ -163,8 +169,14 @@ def main() -> None:
     run_config = {"run_name": "Quetz_Execution"}
 
     # Run graph execution. The agent and tool nodes stream their progress in real-time.
-    for update in app.stream(initial_state, config=run_config, stream_mode="updates"):
-        pass
+    # Ctrl+C (KeyboardInterrupt) aborts the run cleanly at any point.
+    try:
+        for update in app.stream(initial_state, config=run_config, stream_mode="updates"):
+            pass
+    except KeyboardInterrupt:
+        print("\n\n⏹  Interrupted by user (Ctrl+C). Shutting down gracefully.")
+        print("   Work already written to disk is kept.")
+        sys.exit(130)
 
     print("\n🎯 Mission Complete!.")
 
