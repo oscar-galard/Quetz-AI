@@ -82,9 +82,11 @@ def build_reviewer_system_prompt() -> str:
         "executed the necessary tools (such as write_file, edit_file, etc.) to apply "
         "changes to the disk. If the Coder merely claimed to have completed the task "
         "in text/chat but the action log has zero tool calls to write or edit the "
-        "relevant files, the files do not exist or were not updated on disk. You MUST "
-        "output 'REJECTED: No tool calls were executed to write the code files on "
-        "disk.' in this case."
+        "relevant files AND there is no 'Committed Work Summary' describing the "
+        "completed files, you MUST output 'REJECTED: No tool calls were executed to "
+        "write the code files on disk.'. Conversely, if a 'Committed Work Summary' "
+        "confirms the files were written, approve even when the log is short due to "
+        "context summarization."
     )
 
 

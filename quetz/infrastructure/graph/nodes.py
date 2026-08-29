@@ -208,6 +208,7 @@ def reviewer_node(state: AgentState, config: RunnableConfig, container: Containe
         task=state.get("task", ""),
         plan=state.get("plan", ""),
         action_log=action_log,
+        summary=state.get("summary", ""),
     )
     print(f"\n📢 Review Result:\n{feedback.text}\n", flush=True)
 

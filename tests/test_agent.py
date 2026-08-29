@@ -370,5 +370,46 @@ class TestAgentReviewerDisabling(unittest.TestCase):
         self.assertEqual(should_continue(state), "reviewer")
 
 
+class TestReviewerParsing(unittest.TestCase):
+    def _review(self, content):
+        from quetz.application.use_cases.reviewer import ReviewUseCase
+
+        llm = FakeLLM(invoke=lambda msgs: FakeResult(content=content))
+        uc = ReviewUseCase(llm=llm)
+        return uc.execute(task="t", plan="p", action_log="a")
+
+    def test_first_line_approved(self):
+        self.assertTrue(self._review("APPROVED").approved)
+
+    def test_approved_on_final_line(self):
+        # Local models often answer in prose then close with APPROVED.
+        fb = self._review(
+            "The implementation follows Unix conventions.\n\nAPPROVED"
+        )
+        self.assertTrue(fb.approved)
+
+    def test_approved_with_checkmark_line(self):
+        self.assertTrue(self._review("✅ APPROVED").approved)
+
+    def test_rejected_marker(self):
+        fb = self._review("REJECTED: Missing error handling")
+        self.assertFalse(fb.approved)
+        self.assertEqual(fb.reasons, "Missing error handling")
+
+    def test_negative_approval(self):
+        fb = self._review("The work is NOT APPROVED yet.")
+        self.assertFalse(fb.approved)
+
+    def test_garbage_short_response_rejected(self):
+        # Bare token / junk should not terminate the task as approved.
+        self.assertFalse(self._review("a").approved)
+        self.assertFalse(self._review(": 2024-05-21 16:27:29.843000").approved)
+
+    def test_plan_header_echo_not_treated_as_approval(self):
+        # The model re-echoing the plan header must not count as a verdict.
+        fb = self._review("I could not finish. APPROVED ACTION PLAN was provided but not met.")
+        self.assertFalse(fb.approved)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -48,11 +48,13 @@ class CodeUseCase:
 
         bound: LLMPort = self._binder.bind_tools(self._tool_specs)
 
+        streamed_tool = {"flag": False}
         on_tool_name = None
         on_tool_args = None
         if on_content is not None:
 
             def _on_tool_name(name: str) -> None:
+                streamed_tool["flag"] = True
                 on_content(f"\n  ⚙️  Calling tool: {name}(")
 
             def _on_tool_args(args: str) -> None:
@@ -67,9 +69,10 @@ class CodeUseCase:
             on_tool_name=on_tool_name,
             on_tool_args=on_tool_args,
         )
-        if on_content is not None:
+        if streamed_tool["flag"] and on_content is not None:
             on_content(")")
-        on_content("\n")
+        if on_content is not None:
+            on_content("\n")
 
         assistant = result.message or Turn.assistant(content=result.content)
 
