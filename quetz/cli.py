@@ -4,6 +4,8 @@ import os
 import sys
 from langchain_core.messages import HumanMessage
 from quetz.agent import build_graph
+from quetz.presentation import make_container
+from quetz.infrastructure.graph.builder import set_container
 
 GREEN = "\033[38;5;46m"
 CYAN = "\033[38;5;51m"
@@ -110,6 +112,7 @@ def main() -> None:
         "is_approved": False,
     }
 
+    set_container(make_container(interactive=config.INTERACTIVE_MODE))
     app = build_graph()
 
     # Pass configuration to correct child runnable spans in LangSmith

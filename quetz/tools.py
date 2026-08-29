@@ -4,6 +4,28 @@ import re
 import subprocess
 from langchain_core.tools import tool
 
+DEFAULT_READ_LINES = 100
+MAX_SYMBOL_LINES = 200
+MAX_READ_LINES = 500
+
+def resolve_path(path: str) -> str:
+    """Resolve a user-supplied path to an absolute path inside the workspace.
+
+    Accepts both workspace-relative paths (e.g. 'quetz/agent.py') and absolute
+    paths that live inside the workspace. Rejects absolute paths that escape the
+    workspace to keep the agent contained.
+    """
+    workspace = os.path.abspath(config.WORKSPACE_DIR)
+    if os.path.isabs(path):
+        candidate = os.path.normpath(path)
+    else:
+        candidate = os.path.normpath(os.path.join(workspace, path))
+
+    if not candidate.startswith(workspace + os.sep) and candidate != workspace:
+        return ""
+    return candidate
+
+
 def generate_tree(dir_path: str, max_depth: int, current_depth: int = 1, prefix: str = "") -> list[str]:
     """Generates a list of strings representing a directory tree, ignoring noisy directories."""
     if current_depth > max_depth:
@@ -39,7 +61,9 @@ def list_dir(path: str = ".", depth: int = 1) -> str:
     If depth > 1, returns a visual tree representation up to the specified depth 
     (excluding noisy folders like .git, .venv, __pycache__).
     """
-    full = os.path.join(config.WORKSPACE_DIR, path)
+    full = resolve_path(path)
+    if not full:
+        return f"Error: path escapes the workspace: {path}"
     if not os.path.exists(full):
         return f"Error: path does not exist: {path}"
         
@@ -69,9 +93,12 @@ def list_dir(path: str = ".", depth: int = 1) -> str:
 def read_file(file_path: str, start_line: int = 1, end_line: int = None) -> str:
     """Read specific lines of a text file (with line numbers). Supports reading specific line ranges.
     
-    If 'end_line' is not provided, it reads up to 300 lines starting from 'start_line'.
+    If 'end_line' is not provided, it reads up to 100 lines starting from 'start_line'.
+    Prefer read_symbol or search to inspect specific definitions instead of whole files.
     """
-    full = os.path.join(config.WORKSPACE_DIR, file_path)
+    full = resolve_path(file_path)
+    if not full:
+        return f"Error: file path escapes the workspace: {file_path}"
     if not os.path.isfile(full):
         return f"Error: file not found: {file_path}"
     with open(full, "r", encoding="utf-8") as f:
@@ -79,9 +106,11 @@ def read_file(file_path: str, start_line: int = 1, end_line: int = None) -> str:
         
     start_idx = max(0, start_line - 1)
     if end_line is None:
-        end_idx = min(len(lines), start_idx + 300)
+        end_idx = min(len(lines), start_idx + DEFAULT_READ_LINES)
     else:
         end_idx = min(len(lines), max(start_idx, end_line))
+        
+    end_idx = min(end_idx, start_idx + MAX_READ_LINES)
         
     shown = lines[start_idx:end_idx]
     return "".join(f"{start_idx + i + 1:4d}: {line}" for i, line in enumerate(shown))
@@ -89,7 +118,9 @@ def read_file(file_path: str, start_line: int = 1, end_line: int = None) -> str:
 @tool
 def write_file(file_path: str, content: str) -> str:
     """Write (overwrite) a file. Creates parent directories if needed."""
-    full = os.path.join(config.WORKSPACE_DIR, file_path)
+    full = resolve_path(file_path)
+    if not full:
+        return f"Error: file path escapes the workspace: {file_path}"
     parent = os.path.dirname(full)
     if parent:
         os.makedirs(parent, exist_ok=True)
@@ -104,7 +135,9 @@ def edit_file(file_path: str, replacements: list[dict]) -> str:
     Each replacement is a dict: {"find": "...", "replace": "..."}
     The "find" string must occur exactly once in the file.
     """
-    full = os.path.join(config.WORKSPACE_DIR, file_path)
+    full = resolve_path(file_path)
+    if not full:
+        return f"Error: file path escapes the workspace: {file_path}"
     if not os.path.isfile(full):
         return f"Error: file not found: {file_path}"
 
@@ -138,7 +171,9 @@ def search(pattern: str, path: str = ".", context_lines: int = 0, case_sensitive
     If context_lines > 0, it includes surrounding lines of context (equivalent to grep -C).
     Automatically excludes common ignore directories like .git, .venv, and __pycache__.
     """
-    full = os.path.join(config.WORKSPACE_DIR, path)
+    full = resolve_path(path)
+    if not full:
+        return f"Error: path escapes the workspace: {path}"
     if not os.path.exists(full):
         return f"Error: path does not exist: {path}"
         
@@ -170,7 +205,9 @@ def search(pattern: str, path: str = ".", context_lines: int = 0, case_sensitive
 @tool
 def create_directory(path: str) -> str:
     """Create a directory (equivalent to mkdir -p)."""
-    full = os.path.join(config.WORKSPACE_DIR, path)
+    full = resolve_path(path)
+    if not full:
+        return f"Error: path escapes the workspace: {path}"
     os.makedirs(full, exist_ok=True)
     return f"OK: directory ready: {path}"
 
@@ -181,7 +218,9 @@ def read_symbol(file_path: str, symbol: str) -> str:
     The 'symbol' parameter is the name of the function (e.g. 'get_random_moves') 
     or class (e.g. 'Pokemon') to read.
     """
-    full = os.path.join(config.WORKSPACE_DIR, file_path)
+    full = resolve_path(file_path)
+    if not full:
+        return f"Error: file path escapes the workspace: {file_path}"
     if not os.path.isfile(full):
         return f"Error: file not found: {file_path}"
         
@@ -236,6 +275,10 @@ def read_symbol(file_path: str, symbol: str) -> str:
             break
             
         block_lines.append(f"{i + 1:4d}: {line}")
+        
+    if len(block_lines) > MAX_SYMBOL_LINES:
+        block_lines = block_lines[:MAX_SYMBOL_LINES]
+        block_lines.append(f"... truncated at {MAX_SYMBOL_LINES} lines; symbol block is larger. Use read_file for a specific range.")
         
     return "".join(block_lines)
 
