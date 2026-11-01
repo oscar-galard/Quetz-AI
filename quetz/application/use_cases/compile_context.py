@@ -333,8 +333,21 @@ class CompileContextUseCase:
         omitted: list[str],
     ) -> str:
         lines: list[str] = []
+
+        # For each interface file, show the actual exported names
         for item in task.interfaces:
-            lines.append(f"- {item}")
+            full = resolve_workspace_path(self._workspace, item)
+            if full.is_file():
+                # Show exported symbols from the index
+                symbols = self._index.symbols(path=item)
+                exports = [s.qualname for s in symbols[:12]]
+                if exports:
+                    lines.append(f"- {item} exports: {', '.join(exports)}")
+                else:
+                    lines.append(f"- {item}")
+            else:
+                lines.append(f"- {item}")
+
         for symbol in related:
             location = f"{symbol.path}:{symbol.start_line}"
             lines.append(f"- {symbol.signature}  [{location}]")
