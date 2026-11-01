@@ -92,6 +92,11 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Executor backend (cloud is faster).",
     )
+    parser.add_argument(
+        "--no-validate",
+        action="store_true",
+        help="Skip acceptance commands (syntax check only).",
+    )
 
 
 def _workspace(args) -> str:
@@ -297,7 +302,7 @@ def _cmd_execute(args) -> int:
         else:
             branch = container.git.prepare_branch(config.GIT_BRANCH_PREFIX)
 
-    result = _execute_one(container, workspace, task, budget=args.budget)
+    result = _execute_one(container, workspace, task, budget=args.budget, skip_acceptance=getattr(args, "no_validate", False))
     UpdateMemoryUseCase(container.memory).record(task, result)
 
     if result.ok:
@@ -404,6 +409,7 @@ def _execute_one(
     task: TaskSpec,
     *,
     budget: int | None,
+    skip_acceptance: bool = False,
 ) -> ExecutionResult:
     if task.setup_commands:
         runner = CommandRunner(workspace)
@@ -446,6 +452,7 @@ def _execute_one(
         editor=container.make_editor(),
         validator=container.validator,
         reporter=print,
+        skip_acceptance=skip_acceptance,
     )
     return use_case.execute(task, bundle)
 
@@ -485,7 +492,7 @@ def _cmd_run(args) -> int:
 
         print(f"\n▶️  Running {task.id}: {task.title}")
         container.index.ensure_built()
-        result = _execute_one(container, workspace, task, budget=args.budget)
+        result = _execute_one(container, workspace, task, budget=args.budget, skip_acceptance=getattr(args, "no_validate", False))
         UpdateMemoryUseCase(container.memory).record(task, result)
         executed += 1
 
@@ -585,7 +592,7 @@ def _run_goal(
             continue
 
         print(f"\n▶️  {task.id}: {task.title}")
-        result = _execute_one(container, workspace, task, budget=budget)
+        result = _execute_one(container, workspace, task, budget=budget, skip_acceptance=getattr(args, "no_validate", False))
         UpdateMemoryUseCase(container.memory).record(task, result)
 
         if result.ok:
@@ -652,7 +659,7 @@ def _run_goal(
                             conventions=task.conventions,
                         )
                         print(f"\n   🔄 Retrying {task.id} with updated prompt...")
-                        result = _execute_one(container, workspace, task, budget=budget)
+                        result = _execute_one(container, workspace, task, budget=budget, skip_acceptance=getattr(args, "no_validate", False))
                         UpdateMemoryUseCase(container.memory).record(task, result)
                         if result.ok:
                             completed += 1

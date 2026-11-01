@@ -57,7 +57,7 @@ class FakeValidator:
         self.results = list(results)
         self.calls = 0
 
-    def validate(self, task, changed_paths):
+    def validate(self, task, changed_paths, **kwargs):
         self.calls += 1
         return self.results.pop(0)
 
@@ -123,7 +123,7 @@ class TestExecuteTask(unittest.TestCase):
                     self.calls = 0
                     self.saw_file = False
 
-                def validate(self, task, changed_paths):
+                def validate(self, task, changed_paths, **kwargs):
                     self.calls += 1
                     self.saw_file = (root / "a.py").exists()
                     if self.calls == 1:

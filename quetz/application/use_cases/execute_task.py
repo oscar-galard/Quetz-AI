@@ -59,11 +59,13 @@ class ExecuteTaskUseCase:
         editor: AtomicEditor,
         validator: ValidationPort,
         reporter: Reporter | None = None,
+        skip_acceptance: bool = False,
     ) -> None:
         self._llm = llm
         self._editor = editor
         self._validator = validator
         self._report = reporter or _noop
+        self._skip_acceptance = skip_acceptance
 
     def execute(self, task: TaskSpec, context: ContextBundle) -> ExecutionResult:
         prior_error = ""
@@ -122,7 +124,9 @@ class ExecuteTaskUseCase:
                 self._report(f"  ⚠️  Edit rejected: {applied.error}")
                 continue
 
-            validation = self._validator.validate(task, list(applied.changed_paths))
+            validation = self._validator.validate(
+                task, list(applied.changed_paths), skip_acceptance=self._skip_acceptance
+            )
             if validation.ok:
                 self._report(
                     f"  ✅ Validation passed; changed {len(applied.changed_paths)} file(s)."

@@ -24,7 +24,7 @@ class CommandValidator:
         self.workspace = workspace_root(workspace)
         self.default_timeout = default_timeout or q_config.VALIDATION_TIMEOUT
 
-    def validate(self, task: TaskSpec, changed_paths: list[str]) -> ValidationResult:
+    def validate(self, task: TaskSpec, changed_paths: list[str], *, skip_acceptance: bool = False) -> ValidationResult:
         for rel_path in changed_paths:
             try:
                 full_path = resolve_workspace_path(self.workspace, rel_path)
@@ -38,6 +38,9 @@ class CommandValidator:
             error = check_syntax(full_path, read_text(full_path))
             if error:
                 return ValidationResult(ok=False, syntax_error=error)
+
+        if skip_acceptance:
+            return ValidationResult(ok=True)
 
         results: list[CommandResult] = []
         for criterion in task.acceptance:

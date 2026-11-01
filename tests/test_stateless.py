@@ -28,7 +28,7 @@ class RecordingLLM:
 
 
 class StaticValidator:
-    def validate(self, task, changed_paths):
+    def validate(self, task, changed_paths, **kwargs):
         return ValidationResult(ok=True)
 
 
