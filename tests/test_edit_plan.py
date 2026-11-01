@@ -37,6 +37,19 @@ class TestEditPlan(unittest.TestCase):
         with self.assertRaises(EditError):
             parse_edit_plan("I cannot do that.", "T1")
 
+    def test_fixes_escaped_quotes_in_values(self):
+        # Local models sometimes output \" inside string values
+        raw = '{"project": "test", "tasks": [{"id": "T1", "conventions": \\"Do not use pip\\"", "goal": "x", "title": "y", "files": [], "acceptance": [{"command": "ok"}], "layer": "domain"}]}'
+        data = extract_json_object(raw)
+        self.assertIsNotNone(data)
+        self.assertEqual(data["project"], "test")
+
+    def test_fixes_trailing_commas(self):
+        raw = '{"project": "test", "tasks": [],}'
+        data = extract_json_object(raw)
+        self.assertIsNotNone(data)
+        self.assertEqual(data["project"], "test")
+
 
 if __name__ == "__main__":
     unittest.main()

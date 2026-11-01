@@ -127,6 +127,18 @@ class EditPlan:
         }
 
 
+def _fix_json(text: str) -> str:
+    """Fix common JSON quirks from local models (escaped quotes, trailing commas)."""
+    # Fix literal backslash-quotes inside string values: \" -> "
+    # But keep valid JSON escapes like \" at the boundary
+    # Pattern: a value like "foo \" bar" should become "foo " bar"
+    # We fix by replacing \" that appears between non-quote chars
+    text = re.sub(r'(?<=[^\\])\\"(?=[^"])', '"', text)
+    # Remove trailing commas before } or ]
+    text = re.sub(r',\s*([}\]])', r'\1', text)
+    return text
+
+
 def extract_json_object(text: str) -> dict[str, Any] | None:
     """Extract the first JSON object from model output, tolerating prose/fences."""
     if not text:
@@ -137,8 +149,17 @@ def extract_json_object(text: str) -> dict[str, Any] | None:
     if fence:
         candidate = fence.group(1).strip()
 
+    # Try parsing as-is first
     try:
         parsed = json.loads(candidate)
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        pass
+
+    # Try with common fixes
+    fixed = _fix_json(candidate)
+    try:
+        parsed = json.loads(fixed)
         return parsed if isinstance(parsed, dict) else None
     except Exception:
         pass
@@ -147,6 +168,15 @@ def extract_json_object(text: str) -> dict[str, Any] | None:
     for match in re.finditer(r"\{", candidate):
         try:
             parsed, _ = decoder.raw_decode(candidate[match.start():])
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+
+    # Last resort: try fixed version with raw_decode
+    for match in re.finditer(r"\{", fixed):
+        try:
+            parsed, _ = decoder.raw_decode(fixed[match.start():])
         except Exception:
             continue
         if isinstance(parsed, dict):
