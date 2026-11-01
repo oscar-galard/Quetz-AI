@@ -513,7 +513,10 @@ def _run_goal(
     step_mode: bool = False,
 ) -> tuple[int, int]:
     """Plan + execute a single goal. Returns (completed, total)."""
-    print("🧠 Planning...")
+    from quetz import config as cfg
+    planner_tag = "☁️  gpt-5-mini (cloud)" if cfg.PLANNER_MODE == "cloud" else f"🦙 {cfg.PLANNER_MODEL} (local)"
+    executor_tag = "☁️  gpt-5-mini (cloud)" if cfg.EXECUTOR_MODE == "cloud" else f"🦙 {cfg.EXECUTOR_MODEL} (local)"
+    print(f"🧠 Planning with {planner_tag}...")
     try:
         plan = PlanProjectUseCase(
             llm=container.make_planner_llm(),

@@ -47,10 +47,31 @@ class PlanProjectUseCase:
             conventions=conventions,
             memory=memory,
         )
-        result = self._llm.invoke(messages)
-        data = extract_json_object(result.content or "")
+
+        # Stream the response so user can see which model is running
+        chunks: list[str] = []
+
+        def _on_content(text: str) -> None:
+            chunks.append(text)
+            print(text, end="", flush=True)
+
+        try:
+            result = self._llm.stream(messages, on_content=_on_content)
+        except Exception:
+            # Fallback to invoke if stream fails
+            result = self._llm.invoke(messages)
+            chunks.append(result.content or "")
+
+        print()  # newline after streaming
+
+        raw = "".join(chunks) if chunks else (result.content or "")
+        data = extract_json_object(raw)
         if data is None:
             raise PlanError("Planner response did not contain a JSON plan object.")
+
+        # Fix empty project name
+        if not data.get("project", "").strip():
+            data["project"] = self._workspace.name or "project"
 
         try:
             plan = Plan.from_dict(data)
