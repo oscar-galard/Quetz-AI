@@ -1,5 +1,6 @@
-"""Infrastructure layer: adapters, graph, and observability.
+"""Infrastructure layer: adapters and observability.
 
-This layer implements the application ports and owns all framework and tool
-integration (LangChain, LangGraph, LangSmith), keeping the outer layers pure.
+This layer implements the application ports and owns all framework integration
+(LangChain, LangSmith, tree-sitter, SQLite, subprocess Git), keeping the outer
+layers pure.
 """

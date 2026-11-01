@@ -25,3 +25,19 @@ class AgentTerminated(QuetzError):
 
 class WorkflowError(QuetzError):
     """Raised for failures during workflow construction or orchestration."""
+
+
+class ContextError(QuetzError):
+    """Raised when the context compiler cannot produce a usable bundle."""
+
+
+class ProjectIndexError(QuetzError):
+    """Raised when the project index cannot be built or queried."""
+
+
+class EditError(QuetzError):
+    """Raised when an edit plan is malformed or cannot be applied safely."""
+
+
+class ValidationError(QuetzError):
+    """Raised when acceptance validation cannot run."""

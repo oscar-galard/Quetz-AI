@@ -66,6 +66,13 @@ def load_dotenv(dotenv_path: str = None) -> None:
 # Load env variables on startup
 load_dotenv()
 
+def _bool_env(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
 MODE = os.environ.get("MODE", "local").lower()
 LOCAL_MODEL = os.environ.get("LOCAL_MODEL", os.environ.get("QUETZ_MODEL", "qwen3-coder_IQ4XS:latest"))
 CLOUD_MODEL = os.environ.get("CLOUD_MODEL", "gpt-4o")
@@ -77,6 +84,53 @@ CLOUD_BASE_URL = os.environ.get("CLOUD_BASE_URL", "").strip() or None
 NUM_CTX = int(os.environ.get("NUM_CTX", "8192"))
 NUM_PREDICT = int(os.environ.get("NUM_PREDICT", "2048"))
 TEMP = float(os.environ.get("TEMP", "0.0"))
+
+# -- Planner / executor split -------------------------------------------------
+# The planner is typically cloud-hosted; the executor is always the local
+# stateless model. PLANNER_* falls back to the legacy CLOUD_*/MODE settings.
+EXECUTOR_MODE = os.environ.get("EXECUTOR_MODE", "local").lower()
+EXECUTOR_MODEL = os.environ.get("EXECUTOR_MODEL", LOCAL_MODEL)
+EXECUTOR_NUM_CTX = int(os.environ.get("EXECUTOR_NUM_CTX", os.environ.get("NUM_CTX", "12288")))
+EXECUTOR_NUM_PREDICT = int(
+    os.environ.get("EXECUTOR_NUM_PREDICT", os.environ.get("NUM_PREDICT", "4096"))
+)
+
+PLANNER_MODE = os.environ.get("PLANNER_MODE", MODE).lower()
+PLANNER_MODEL = os.environ.get(
+    "PLANNER_MODEL",
+    CLOUD_MODEL if PLANNER_MODE == "cloud" else LOCAL_MODEL,
+)
+PLANNER_API_KEY = os.environ.get("PLANNER_API_KEY", CLOUD_API_KEY)
+PLANNER_BASE_URL = (
+    os.environ.get("PLANNER_BASE_URL", CLOUD_BASE_URL or "").strip() or None
+)
+PLANNER_NUM_CTX = int(os.environ.get("PLANNER_NUM_CTX", NUM_CTX))
+PLANNER_NUM_PREDICT = int(os.environ.get("PLANNER_NUM_PREDICT", NUM_PREDICT))
+
+# -- Context compiler / index -------------------------------------------------
+CONTEXT_TOKEN_BUDGET = int(os.environ.get("CONTEXT_TOKEN_BUDGET", "6000"))
+CONTEXT_MAX_FILE_CHARS = int(os.environ.get("CONTEXT_MAX_FILE_CHARS", "12000"))
+CONTEXT_MAX_FILE_LINES = int(os.environ.get("CONTEXT_MAX_FILE_LINES", "250"))
+CONTEXT_HEADER_LINES = int(os.environ.get("CONTEXT_HEADER_LINES", "40"))
+CONTEXT_MAX_INTERFACE_CHARS = int(os.environ.get("CONTEXT_MAX_INTERFACE_CHARS", "2500"))
+CONTEXT_MAX_CONVENTION_CHARS = int(os.environ.get("CONTEXT_MAX_CONVENTION_CHARS", "1500"))
+CONTEXT_MAX_DIFF_CHARS = int(os.environ.get("CONTEXT_MAX_DIFF_CHARS", "3000"))
+CONTEXT_MAX_MEMORY_CHARS = int(os.environ.get("CONTEXT_MAX_MEMORY_CHARS", "1500"))
+CONTEXT_MAX_SKILLS_CHARS = int(os.environ.get("CONTEXT_MAX_SKILLS_CHARS", "3000"))
+INDEX_MAX_FILE_BYTES = int(os.environ.get("INDEX_MAX_FILE_BYTES", "524288"))
+
+# -- Workspace artifacts / execution -----------------------------------------
+QUETZ_DIR = os.environ.get("QUETZ_DIR", ".quetz")
+SKILLS_DIR = os.environ.get("SKILLS_DIR", "skills")
+TASKS_FILE = os.environ.get("TASKS_FILE", "tasks.json")
+BACKLOG_FILE = os.environ.get("BACKLOG_FILE", "backlog.md")
+MEMORY_FILE = os.environ.get("MEMORY_FILE", "memory.md")
+INDEX_DB = os.environ.get("INDEX_DB", "index.db")
+
+DEFAULT_MAX_ATTEMPTS = int(os.environ.get("DEFAULT_MAX_ATTEMPTS", "2"))
+VALIDATION_TIMEOUT = int(os.environ.get("VALIDATION_TIMEOUT", "300"))
+AUTO_COMMIT = _bool_env("AUTO_COMMIT", True)
+GIT_BRANCH_PREFIX = os.environ.get("GIT_BRANCH_PREFIX", "quetz/")
 
 if MODE == "cloud":
     MODEL_NAME = CLOUD_MODEL

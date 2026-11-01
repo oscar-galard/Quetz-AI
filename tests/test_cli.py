@@ -1,54 +1,69 @@
+import contextlib
+import io
+import json
+import tempfile
 import unittest
-from unittest.mock import patch, MagicMock
+from pathlib import Path
 
-class TestBanner(unittest.TestCase):
-    @patch("builtins.print")
-    def test_print_banner(self, mock_print):
-        from quetz.cli import print_banner, BANNER
-        print_banner()
-        mock_print.assert_called_once_with(BANNER)
+from quetz.cli import main
+from quetz.domain.task_spec import Plan, TaskSpec, TaskStatus
+from quetz.infrastructure.tasks.store import ensure_quetz_dir, load_plan, save_plan
 
 
-class TestBannerGradient(unittest.TestCase):
-    def test_bright_green_predominates(self):
-        import re
-        from collections import Counter
-        from quetz.cli import _BANNER_QUETZ, _GREENS, _gradient_green
+def _write_plan(root: Path) -> None:
+    (_ := root / "pkg").mkdir()
+    (root / "pkg/__init__.py").write_text("", encoding="utf-8")
+    (root / "pkg/app.py").write_text("def main():\n    return 1\n", encoding="utf-8")
+    quetz_dir = ensure_quetz_dir(root)
+    save_plan(
+        Plan(
+            project="demo",
+            tasks=(
+                TaskSpec(
+                    id="T1",
+                    title="Change main",
+                    goal="Return 2",
+                    files=("pkg/app.py",),
+                ),
+            ),
+        ),
+        quetz_dir / "tasks.json",
+    )
 
-        # Escape codes considered "bright green": 46 and 82.
-        bright_codes = {c for c in _GREENS if c.endswith(";46m") or c.endswith(";82m")}
-        counts = Counter(_gradient_green(r, c)
-                         for r, row in enumerate(_BANNER_QUETZ)
-                         for c, ch in enumerate(row) if ch.strip())
-        total = sum(counts.values())
-        bright = sum(n for code, n in counts.items() if code in bright_codes)
-        # Bright green must be the clear majority of the block.
-        self.assertGreater(100 * bright / total, 70)
 
+class TestCli(unittest.TestCase):
+    def _run(self, argv):
+        output = io.StringIO()
+        code = None
+        with contextlib.redirect_stdout(output):
+            try:
+                main(argv)
+            except SystemExit as exc:
+                code = exc.code
+        return code, output.getvalue()
 
-class TestGracefulInterrupt(unittest.TestCase):
-    @patch("quetz.cli.config")
-    @patch("quetz.cli.print_banner")
-    @patch("quetz.cli.set_container")
-    @patch("quetz.cli.build_graph")
-    @patch("quetz.cli.make_container")
-    def test_interrupt_message(self, mock_mc, mock_bg, mock_sc, mock_pb, mock_cfg):
-        import sys
-        from quetz.cli import main
+    def test_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_plan(root)
+            code, output = self._run(["status", "-d", tmp])
+            self.assertEqual(code, 0)
+            self.assertIn("T1", output)
+            self.assertIn("pending", output)
 
-        app = MagicMock()
-        app.stream.side_effect = KeyboardInterrupt()
-        mock_bg.return_value = app
-        mock_cfg.WORKSPACE_DIR = "/tmp"
-        mock_cfg.INTERACTIVE_MODE = False
-        mock_cfg.DEBUG_MODE = False
-        mock_cfg.MODE = "local"
-        mock_cfg.MODEL_NAME = "m"
+    def test_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _write_plan(root)
+            code, output = self._run(["context", "-d", tmp, "--task", "T1"])
+            self.assertEqual(code, 0)
+            self.assertIn("Task: T1", output)
+            self.assertIn("pkg/app.py", output)
 
-        argv = ["quetz-ai", "do the thing", "-d", ".", "-a"]
-        with patch("sys.argv", argv), self.assertRaises(SystemExit) as cm:
-            main()
-        self.assertEqual(cm.exception.code, 130)
+    def test_requires_subcommand(self):
+        code, output = self._run([])
+        self.assertEqual(code, 2)
+        self.assertIn("usage:", output.lower())
 
 
 if __name__ == "__main__":

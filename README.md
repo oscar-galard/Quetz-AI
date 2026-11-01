@@ -1,116 +1,169 @@
-
 # Quetz-AI
 
 <p align="center">
   <img src="./optm_Quetz-AI.png" alt="Quetz-AI Banner" width="600"/>
 </p>
 
-**A lightweight, Unix-minded AI software engineering agent.**
+**A token-saver coding agent for small, focused changes.**
 
-Minimal context. Local LLMs. 
-
-[Key Features](#key-features) • [Architecture](#architecture) • [Installation](#installation) • [Usage](#usage)
+Hybrid: cloud planner + local executor. Minimal code that runs — you improve it in Emacs.
 
 ---
 
-## Overview
+## What this is
 
-**Quetz-AI** is a terminal-first autonomous coding assistant designed around the Unix philosophy: do one thing well with low friction and composable design. Built on top of **LangGraph** and powered locally via **Ollama**, Quetz-AI automates code generation, refactoring, and directory operations without bloating your context window.
+Quetz-AI is **not** a replacement for Claude Code or OpenCode. It's a **fast, cheap alternative for small modifications** — the kind where you know what you want, but don't want to type 200 lines by hand.
 
-Unlike heavy agent frameworks that inject thousands of tokens per iteration, Quetz-AI maintains a streamlined system prompt, explicit tool-calling loops, and robust fallback parsers to maximize the efficiency of quantized local models (e.g., Qwen2.5-Coder / Qwen3-Coder).
+It's designed for **one stack**: Python (FastAPI, Pydantic, LangGraph, Celery, Postgres/pgvector) + TypeScript (React, Vite, Tailwind, shadcn/ui).
 
----
+**Not for:** giant codebases, complex refactoring, or tasks requiring deep architectural reasoning. For that, use Claude or OpenCode.
 
-## Key Features
-
-- **Local-First & Private**: Direct integration with `ChatOllama`—no external API keys or cloud dependencies required.
-- **Unix Philosophy**: Minimalist system instruction layer that relies on native tool-calling schemas rather than verbose prompt text.
-- **LangGraph Orchestration**: Clean state machine implementation (`AgentState`) controlling tool execution, conditional edges, and iteration limits.
-- **Robust Tool Parsing**: Native tool call support with regex JSON fallbacks for non-conforming local LLM outputs.
-- **Interactive Mode**: Optional human-in-the-loop verification with diff preview (`[d]`) and pager views (`[v]`) before writing or editing files.
-- **Workspace Context Detection**: Auto-loads workspace guidelines (`specs.md`, `instructions.md`) when present.
+**For:** scaffolding, small features, CRUD endpoints, file structures, mockups, quick iterations.
 
 ---
 
-<p align="center">
-  <img src="./optm_quetz-ai_working.png" alt="Quetz-AI working" width="600"/>
-</p>
-
-## Architecture
-
-The core architecture follows a cyclic graph state machine:
+## How it works
 
 ```
-+---------+
-|  START  |
-+----+----+
-     |
-     v
-+---------+
-|  agent  |<------+
-+----+----+       |
-     |            |
-(should_continue)   |
-/         \       |
-v           v      |
-+-------+   +-------+ |
-| finish|   | tools |-+
-+-------+   +-------+
-|
-v
-+-----+
-| END |
-+-----+
+Your prompt
+    │
+    ▼
+Cloud Planner (GPT-4o) ──► small task list (4-8 tasks)
+    │
+    ▼ (per task, stateless)
+Context Compiler ──► minimal prompt (~1000 tokens)
+    │                   target files + relevant skills + conventions
+    ▼
+Local Executor (Qwen3-Coder) ──► JSON edit plan
+    │
+    ▼
+Atomic Editor ──► syntax check ──► git commit
 ```
 
-- **`agent_node`**: Formulates execution plans, streams tokens, and emits tool calls.
-- **`tools_node`**: Executes disk operations (`read_file`, `write_file`, `edit_file`, `list_dir`, `search`) and returns structured `ToolMessage` payloads.
+Each task is **stateless** — no conversation history, no context bloat. After 10 iterations, the 11th task sees exactly the same amount of context as the first.
 
 ---
-
-## Installation
-
-### Prerequisites
-
-- Python 3.10+
-- Gentoo / Linux / macOS environment
-- Running [Ollama](https://ollama.com) instance with a coding model pull (e.g., `qwen2.5-coder:32b` or `qwen3-coder:30b`)
-
-### Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/your-username/quetz-ai.git
-cd quetz-ai
-
-# Initialize virtual environment using uv or venv
-uv venv
-source .venv/bin/activate
-
-# Install dependencies
-uv pip install -e .
-```
 
 ## Usage
 
-Run quetz-ai inside your project directory:
-
 ```bash
-# Basic interactive execution
-quetz-ai -d /path/to/project -p prompt.md
+# One-shot: plan + execute + exit
+quetz-ai "create the folder structure for a clean architecture project in backend/"
+quetz-ai "install vite and react on the frontend directory"
+quetz-ai "create a py file named organization.py with CRUD mockup"
+quetz-ai "create a mockup FastAPI endpoint for newsletter subscriptions"
 
-# Non-interactive / Direct prompt mode
-quetz-ai -p "Refactor main.py to use async/await with httpx"
+# Interactive: REPL session until you quit
+quetz-ai -i "build a newsletter API"
+› add JWT auth
+› create a simple React frontend
+› quit
+
+# Advanced: per-task control
+quetz-ai execute --task T4 --executor cloud
+quetz-ai plan "add authentication"
+quetz-ai status
+quetz-ai context --task T1 --show
 ```
 
-### Interactive Tool Confirmation Options
+---
 
-When Quetz-AI proposes file modifications (write_file or edit_file), you can review changes directly from the CLI:
+## Design philosophy
 
-- `[y] Apply`: Execute the modification.
-- `[n] Reject`: Abort action and pass user rejection context back to the agent.
-- `[v] View`: Open full target file in terminal pager.
-- `[d] Diff`: View unified diff of proposed changes before writing to disk.
+**Minimal code, not perfect code.** The executor produces code that runs. You improve it manually in Emacs. No tests, no docstrings, no unnecessary error handling — just what works.
+
+**Token-saver.** The context compiler sends ~1000 tokens per task, not 50K. The planner breaks goals into small tasks so the executor never overflows.
+
+**Stateless by design.** No history accumulation. No endless loops. Each task is a fresh call.
+
+**Hybrid models.** Cloud planner (fast decomposition) + local executor (cheap code generation). Switchable per-run:
+
+```bash
+quetz-ai --executor cloud "create endpoint"   # fast (GPT-4o)
+quetz-ai --executor local "create endpoint"   # free (Qwen3)
+```
+
+---
+
+## Stack
+
+| Layer | Technologies |
+|-------|-------------|
+| Backend | Python, FastAPI, Pydantic, LangGraph/LangChain, Celery |
+| Frontend | TypeScript, React, Vite, Tailwind CSS, shadcn/ui |
+| Database | PostgreSQL, pgvector, SQLAlchemy, Alembic |
+| Architecture | Clean Architecture (domain/application/interface/infrastructure) |
+| Testing | pytest (minimal — only when you ask for it) |
+
+---
+
+## Setup
+
+```bash
+# Install
+uv venv && uv sync
+
+# Local executor (Ollama)
+ollama pull qwen3-coder_IQ4XS:latest
+
+# Cloud planner (OpenAI-compatible)
+export OPENAI_API_KEY=...
+export PLANNER_MODE=cloud
+export PLANNER_MODEL=gpt-4o
+```
+
+---
+
+## Configuration
+
+```bash
+# Models
+PLANNER_MODE=cloud          # or local
+PLANNER_MODEL=gpt-4o
+EXECUTOR_MODE=local         # or cloud
+EXECUTOR_MODEL=qwen3-coder_IQ4XS:latest
+
+# Context budget
+CONTEXT_TOKEN_BUDGET=6000   # max tokens per task prompt
+
+# Auto-commit
+AUTO_COMMIT=true            # commit after each successful task
+GIT_BRANCH_PREFIX=quetz/
+```
+
+---
+
+## Skills
+
+Skills are markdown files in `skills/` that teach the executor how to write code for specific technologies. The context compiler retrieves only the relevant sections based on task type and stack.
+
+```bash
+skills/
+├── ponytail.md          # minimal code philosophy (always active)
+├── fastapi.md           # routes, dependency injection, error handling
+├── pydantic.md          # strict schemas, validation
+├── clean-architecture.md # layer boundaries, ports & adapters
+├── react.md             # components, hooks, shadcn
+├── typescript.md        # strict types, error handling
+├── celery.md            # async tasks, idempotency
+├── postgres-pgvector.md # SQLAlchemy, embeddings, migrations
+├── langgraph.md         # state machines, nodes
+└── pytest.md            # minimal testing
+```
+
+Add your own skills by dropping `.md` files in `skills/`. The format is documented in `skills/ponytail.md`.
+
+---
+
+## Workspace
+
+```bash
+.quetz/
+├── tasks.json     # task queue
+├── backlog.md     # human-readable plan
+├── memory.md      # task decisions/pitfalls
+└── index.db       # project index (git-ignored)
+```
 
 ---
 

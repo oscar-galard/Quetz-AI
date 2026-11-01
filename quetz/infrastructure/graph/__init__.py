@@ -1,6 +1,6 @@
-"""LangGraph infrastructure package: the workflow graph adapter.
+"""Reserved for an optional LangGraph workflow adapter.
 
-This is the only place that imports ``langgraph``. It adapts the framework
-state (LangChain messages with the ``add_messages`` reducer) to the neutral
-application use cases and back.
+The current orchestrator is plain Python (``quetz/cli.py`` + use cases); this
+package exists so a graph adapter can be added without changing the domain or
+application layers.
 """

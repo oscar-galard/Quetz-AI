@@ -1,1 +1,1 @@
-"""Tool infrastructure package: adapters and specs."""
+"""Tool adapters for shell command execution."""
