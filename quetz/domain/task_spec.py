@@ -88,7 +88,7 @@ class TaskSpec:
     interfaces: tuple[str, ...] = ()
     acceptance: tuple[AcceptanceCriterion, ...] = ()
     depends_on: tuple[str, ...] = ()
-    max_attempts: int = 2
+    max_attempts: int = 5
     status: TaskStatus = TaskStatus.PENDING
     notes: str = ""
     layer: str = ""
@@ -161,7 +161,7 @@ class TaskSpec:
             interfaces=tuple(data.get("interfaces", ()) or ()),
             acceptance=tuple(AcceptanceCriterion.from_dict(a) for a in raw_acceptance),
             depends_on=tuple(data.get("depends_on", ()) or ()),
-            max_attempts=int(data.get("max_attempts", 2)),
+            max_attempts=int(data.get("max_attempts", 5)),
             status=str(data.get("status", "pending")),
             notes=str(data.get("notes", "")),
             layer=str(data.get("layer", "")),

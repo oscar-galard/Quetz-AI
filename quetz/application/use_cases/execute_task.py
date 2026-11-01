@@ -5,6 +5,7 @@ the prompt from the same :class:`ContextBundle` plus a compact validator error.
 """
 from __future__ import annotations
 
+import re
 from typing import Callable
 
 from quetz.application.prompts.executor import build_executor_messages
@@ -17,6 +18,33 @@ from quetz.domain.task_spec import TaskSpec
 from quetz.infrastructure.fs.editor import AtomicEditor
 
 Reporter = Callable[[str], None]
+
+# Patterns that indicate a degenerate/invalid LLM response (local models)
+_INVALID_PATTERNS = [
+    re.compile(r"^\s*$", re.DOTALL),  # empty
+    re.compile(r'^\s*["\u201c\u201d]\s*$'),  # just a quote
+    re.compile(r"^\s*A\s*:", re.IGNORECASE),  # "A: ..." answer format
+    re.compile(r"^\s*Answer\s*:", re.IGNORECASE),
+    re.compile(r"^\s*Q\s*:", re.IGNORECASE),  # "Q: ..." question format
+    re.compile(r"^\s*Sure[,!]", re.IGNORECASE),  # "Sure, here's..."
+    re.compile(r"^\s*I\s+(can't|cannot|am\s+unable)", re.IGNORECASE),
+    re.compile(r"^\s*Sorry", re.IGNORECASE),
+    re.compile(r"^\s*As\s+an\s+AI", re.IGNORECASE),
+]
+
+
+def _is_invalid_response(text: str) -> bool:
+    """Detect degenerate LLM output that should be retried without penalty."""
+    if not text or not text.strip():
+        return True
+    stripped = text.strip()
+    for pattern in _INVALID_PATTERNS:
+        if pattern.match(stripped):
+            return True
+    # If it contains no JSON object at all, it's invalid
+    if "{" not in stripped:
+        return True
+    return False
 
 
 def _noop(_text: str) -> None:
@@ -40,11 +68,12 @@ class ExecuteTaskUseCase:
     def execute(self, task: TaskSpec, context: ContextBundle) -> ExecutionResult:
         prior_error = ""
         last_error = ""
-        max_attempts = max(1, task.max_attempts)
+        max_attempts = max(3, task.max_attempts)  # minimum 3, respects task config
+        degenerate_count = 0  # invalid responses don't count toward limit
 
         for attempt in range(1, max_attempts + 1):
             self._report(
-                f"🤖 Executor attempt {attempt}/{max_attempts} for {task.id} "
+                f"🦜 Executor attempt {attempt}/{max_attempts} for {task.id} "
                 f"(~{context.approx_tokens} context tokens)"
             )
             messages = build_executor_messages(context, prior_error)
@@ -55,8 +84,20 @@ class ExecuteTaskUseCase:
                 prior_error = last_error
                 continue
 
+            content = result.content or ""
+
+            # Intercept degenerate responses (empty, "A: ...", no JSON, etc.)
+            if _is_invalid_response(content):
+                degenerate_count += 1
+                self._report(
+                    f"  ⚠️  Degenerate response #{degenerate_count} "
+                    f"({len(content.strip())} chars) — retrying without penalty..."
+                )
+                prior_error = "Your last response was empty or not valid JSON. Return ONLY the edit-plan JSON."
+                continue
+
             try:
-                plan = parse_edit_plan(result.content or "", task.id)
+                plan = parse_edit_plan(content, task.id)
             except EditError as exc:
                 last_error = f"Invalid edit-plan response: {exc}"
                 prior_error = last_error

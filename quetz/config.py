@@ -127,7 +127,7 @@ BACKLOG_FILE = os.environ.get("BACKLOG_FILE", "backlog.md")
 MEMORY_FILE = os.environ.get("MEMORY_FILE", "memory.md")
 INDEX_DB = os.environ.get("INDEX_DB", "index.db")
 
-DEFAULT_MAX_ATTEMPTS = int(os.environ.get("DEFAULT_MAX_ATTEMPTS", "2"))
+DEFAULT_MAX_ATTEMPTS = int(os.environ.get("DEFAULT_MAX_ATTEMPTS", "5"))
 VALIDATION_TIMEOUT = int(os.environ.get("VALIDATION_TIMEOUT", "300"))
 AUTO_COMMIT = _bool_env("AUTO_COMMIT", True)
 GIT_BRANCH_PREFIX = os.environ.get("GIT_BRANCH_PREFIX", "quetz/")

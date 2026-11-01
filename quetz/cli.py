@@ -85,6 +85,13 @@ def _add_common(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Path to tasks.json (default: <workspace>/.quetz/tasks.json).",
     )
+    parser.add_argument("--budget", type=int, default=None, help="Token budget.")
+    parser.add_argument(
+        "--executor",
+        choices=("local", "cloud"),
+        default=None,
+        help="Executor backend (cloud is faster).",
+    )
 
 
 def _workspace(args) -> str:
@@ -146,6 +153,70 @@ def _build_container(workspace: str, *, verbose: bool = False) -> Container:
         print(f"🔧 Index: {container.index.db_path}")  # type: ignore[attr-defined]
     ensure_quetz_dir(workspace)
     return container
+
+
+def _show_diff(workspace: str, paths: list[str]) -> None:
+    """Show git diff for the given paths."""
+    import subprocess
+    if not paths:
+        print("   No files changed.")
+        return
+    for p in paths:
+        full = os.path.join(workspace, p)
+        if not os.path.isfile(full):
+            continue
+        print(f"\n   --- {p} ---")
+        try:
+            result = subprocess.run(
+                ["git", "diff", "--no-color", "--", p],
+                cwd=workspace, capture_output=True, text=True, timeout=10,
+            )
+            if result.stdout.strip():
+                for line in result.stdout.splitlines():
+                    if line.startswith("+") and not line.startswith("+++"):
+                        print(f"   \033[32m{line}\033[0m")
+                    elif line.startswith("-") and not line.startswith("---"):
+                        print(f"   \033[31m{line}\033[0m")
+                    elif line.startswith("@@"):
+                        print(f"   \033[36m{line}\033[0m")
+                    else:
+                        print(f"   {line}")
+            else:
+                # New untracked file — show content
+                with open(full) as f:
+                    for line in f.readlines()[:40]:
+                        print(f"   \033[32m+{line.rstrip()}\033[0m")
+        except Exception:
+            print(f"   (cannot show diff)")
+
+
+def _show_file_pager(path: str) -> None:
+    """Open a file in the system pager."""
+    import subprocess
+    pager = os.environ.get("PAGER", "less -R")
+    try:
+        subprocess.run(f"{pager} {path}", shell=True, timeout=60)
+    except Exception:
+        print(f"   (pager failed)")
+
+
+def _edit_task_prompt(task: TaskSpec) -> str | None:
+    """Let the user rewrite the task prompt. Returns new prompt or None to cancel."""
+    import tempfile
+    print(f"\n   Current prompt for {task.id}:")
+    print(f"   {'─' * 40}")
+    for line in task.prompt.splitlines():
+        print(f"   {line}")
+    print(f"   {'─' * 40}")
+
+    print(f"\n   Type new prompt (or press Enter to keep current, 'cancel' to abort):")
+    try:
+        new_prompt = input("   › ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+    if not new_prompt or new_prompt.lower() == "cancel":
+        return None
+    return new_prompt
 
 
 def _cmd_index(args) -> int:
@@ -518,18 +589,74 @@ def _run_goal(
 
         _persist_plan(plan, plan_path)
 
-        # Step mode: pause before next task
+        # Step mode: pause before next task with review options
         if step_mode and idx < len(plan.tasks) - 1:
             remaining = [t.id for t in plan.tasks[idx + 1:] if t.status == TaskStatus.PENDING]
-            if remaining:
+            if not remaining:
+                continue
+
+            while True:
                 try:
-                    choice = input(f"\n   Continue to {remaining[0]}? [Y/n] ").strip().lower()
+                    choice = input(
+                        f"\n   [{remaining[0]}] [Y]ontinue [n]stop [d]iff [v]iew [e]dit prompt: "
+                    ).strip().lower()
                 except (EOFError, KeyboardInterrupt):
                     choice = "n"
-                if choice in ("n", "no", "q", "quit", "stop"):
-                    print(f"   Stopped. Remaining: {', '.join(remaining)}")
-                    print("   Resume with: quetz-ai run")
+
+                if choice in ("", "y", "yes", "continue", "next"):
                     break
+                elif choice in ("n", "no", "q", "quit", "stop"):
+                    print(f"   Stopped. Remaining: {', '.join(remaining)}")
+                    print(f"   Resume with: quetz-ai run")
+                    return completed, len(plan.tasks)
+                elif choice == "d":
+                    _show_diff(workspace, list(result.changed_paths) if result.ok else [])
+                elif choice == "v":
+                    paths = list(result.changed_paths) if result.ok else []
+                    if paths:
+                        _show_file_pager(os.path.join(workspace, paths[0]))
+                    else:
+                        print("   No files to view.")
+                elif choice == "e":
+                    # Rewrite prompt and retry current task
+                    new_prompt = _edit_task_prompt(task)
+                    if new_prompt:
+                        task = TaskSpec(
+                            id=task.id,
+                            title=task.title,
+                            goal=task.goal,
+                            prompt=new_prompt,
+                            files=task.files,
+                            allowed_new_files=task.allowed_new_files,
+                            symbols=task.symbols,
+                            interfaces=task.interfaces,
+                            acceptance=task.acceptance,
+                            depends_on=task.depends_on,
+                            max_attempts=task.max_attempts,
+                            status=task.status,
+                            notes=task.notes,
+                            layer=task.layer,
+                            setup_commands=task.setup_commands,
+                            conventions=task.conventions,
+                        )
+                        print(f"\n   🔄 Retrying {task.id} with updated prompt...")
+                        result = _execute_one(container, workspace, task, budget=budget)
+                        UpdateMemoryUseCase(container.memory).record(task, result)
+                        if result.ok:
+                            completed += 1
+                            plan = plan.with_task_status(task.id, TaskStatus.DONE)
+                            print(f"   ✅ Done ({result.attempts} attempt(s))")
+                        else:
+                            plan = plan.with_task_status(task.id, TaskStatus.BLOCKED)
+                            print(f"   ❌ Blocked: {result.error}")
+                        _persist_plan(plan, plan_path)
+                        # Show new diff
+                        if result.ok:
+                            _show_diff(workspace, list(result.changed_paths))
+                    else:
+                        print("   Prompt unchanged.")
+                else:
+                    print("   [Y]=continue  [n]=stop  [d]=diff  [v]=view file  [e]=edit prompt")
 
     return completed, len(plan.tasks)
 
@@ -619,12 +746,6 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "prompt",
-        nargs="?",
-        default=None,
-        help="Goal or prompt. One-shot if no -i flag.",
-    )
-    parser.add_argument(
         "-i", "--interactive",
         action="store_true",
         help="Interactive session (REPL). Run until you type 'quit'.",
@@ -640,21 +761,13 @@ def _build_parser() -> argparse.ArgumentParser:
     context_parser = subparsers.add_parser("context", help="Compile context for one task.")
     _add_common(context_parser)
     context_parser.add_argument("--task", default=None, help="Task id (default: next pending).")
-    context_parser.add_argument("--budget", type=int, default=None, help="Token budget.")
     context_parser.add_argument("--show", action="store_true", help="Print the full prompt.")
     context_parser.set_defaults(func=_cmd_context)
 
     exec_parser = subparsers.add_parser("execute", help="Execute one task with the local model.")
     _add_common(exec_parser)
     exec_parser.add_argument("--task", default=None, help="Task id (default: next pending).")
-    exec_parser.add_argument("--budget", type=int, default=None, help="Token budget.")
     exec_parser.add_argument("--no-commit", action="store_true", help="Do not auto-commit.")
-    exec_parser.add_argument(
-        "--executor",
-        choices=("local", "cloud"),
-        default=None,
-        help="Override the executor backend (cloud is faster).",
-    )
     exec_parser.set_defaults(func=_cmd_execute)
 
     status_parser = subparsers.add_parser("status", help="Show task status.")
@@ -675,41 +788,74 @@ def _build_parser() -> argparse.ArgumentParser:
 
     run_parser = subparsers.add_parser("run", help="Execute pending tasks in order.")
     _add_common(run_parser)
-    run_parser.add_argument("--budget", type=int, default=None, help="Token budget per task.")
     run_parser.add_argument("--no-commit", action="store_true", help="Do not auto-commit.")
     run_parser.add_argument("--max-tasks", type=int, default=None, help="Stop after N tasks.")
-    run_parser.add_argument(
-        "--executor",
-        choices=("local", "cloud"),
-        default=None,
-        help="Override the executor backend (cloud is faster).",
-    )
     run_parser.set_defaults(func=_cmd_run)
 
     chat_parser = subparsers.add_parser("chat", help="Interactive session (REPL).")
     _add_common(chat_parser)
-    chat_parser.add_argument("--budget", type=int, default=None, help="Token budget per task.")
-    chat_parser.add_argument(
-        "--executor",
-        choices=("local", "cloud"),
-        default=None,
-        help="Override the executor backend (cloud is faster).",
-    )
     chat_parser.set_defaults(func=_cmd_interactive)
 
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = _build_parser()
-    args = parser.parse_args(argv)
-    print_banner()
+    if argv is None:
+        argv = sys.argv[1:]
 
-    # New interface: positional prompt + -i flag
-    if args.interactive:
-        args.func = _cmd_interactive
-    elif args.prompt and not getattr(args, "command", None):
-        args.func = _cmd_oneshot
+    parser = _build_parser()
+    subcommands = {"index", "context", "execute", "status", "plan", "run", "chat"}
+
+    # Find the first non-flag argument
+    first_positional = None
+    skip_next = False
+    flags_with_value = {"-d", "--dir", "--tasks-file", "--budget", "--executor", "--task", "--goal-file", "--max-tasks"}
+    for arg in argv:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in flags_with_value:
+            skip_next = True
+            continue
+        if arg.startswith("-"):
+            continue
+        first_positional = arg
+        break
+
+    # If first positional is NOT a subcommand, treat all positionals as prompt
+    if first_positional and first_positional not in subcommands:
+        # Separate flags from prompt words
+        flags_only = []
+        prompt_parts = []
+        skip_next = False
+        for arg in argv:
+            if skip_next:
+                skip_next = False
+                flags_only.append(arg)
+                continue
+            if arg in flags_with_value:
+                skip_next = True
+                flags_only.append(arg)
+                continue
+            if arg.startswith("-"):
+                flags_only.append(arg)
+            else:
+                prompt_parts.append(arg)
+
+        args = parser.parse_args(flags_only)
+        args.prompt = " ".join(prompt_parts)
+        if args.interactive:
+            args.func = _cmd_interactive
+        else:
+            args.func = _cmd_oneshot
+    else:
+        args = parser.parse_args(argv)
+        if args.interactive:
+            args.func = _cmd_interactive
+        elif getattr(args, "prompt", None) and not getattr(args, "command", None):
+            args.func = _cmd_oneshot
+
+    print_banner()
 
     if not getattr(args, "func", None):
         parser.print_help()

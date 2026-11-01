@@ -353,16 +353,17 @@ class CompileContextUseCase:
     ) -> str:
         blocks: list[str] = []
 
-        # Prefer AI-extracted conventions from the planner (task-specific)
+        # Always include raw convention files (AGENTS.md, specs.md, etc.)
+        # These contain critical rules like "use uv, not pip"
+        for name in ("AGENTS.md", "instructions.md", "specs.md"):
+            path = self._workspace / name
+            if path.is_file():
+                text = read_text(path, max_chars=q_config.CONTEXT_MAX_CONVENTION_CHARS)
+                blocks.append(f"### {name}\n{text.strip()}")
+
+        # Also include AI-extracted task-specific conventions from the planner
         if task.conventions.strip():
-            blocks.append(task.conventions.strip())
-        else:
-            # Fallback: read convention files (less precise)
-            for name in ("AGENTS.md", "instructions.md", "specs.md"):
-                path = self._workspace / name
-                if path.is_file():
-                    text = read_text(path, max_chars=q_config.CONTEXT_MAX_CONVENTION_CHARS)
-                    blocks.append(f"### {name}\n{text.strip()}")
+            blocks.append(f"### Task conventions\n{task.conventions.strip()}")
 
         tags: set[str] = set()
         for context_file in target_files:
