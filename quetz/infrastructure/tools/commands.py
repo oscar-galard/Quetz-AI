@@ -21,7 +21,24 @@ class CommandRunner:
         self.workspace = workspace_root(workspace)
         self.default_timeout = default_timeout
 
+    def _ensure_project_init(self, command: str) -> None:
+        """Auto-create pyproject.toml if uv add is called without one."""
+        if not command.strip().startswith("uv add"):
+            return
+        if (self.workspace / "pyproject.toml").is_file():
+            return
+        # Auto-init project
+        subprocess.run(
+            "uv init --package --name app",
+            shell=True,
+            cwd=self.workspace,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
     def run(self, command: str, *, timeout: int | None = None) -> CommandResult:
+        self._ensure_project_init(command)
         effective_timeout = timeout or self.default_timeout
         try:
             completed = subprocess.run(
