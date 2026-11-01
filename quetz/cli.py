@@ -527,6 +527,7 @@ def _run_goal(
     *,
     budget: int | None = None,
     step_mode: bool = False,
+    skip_acceptance: bool = False,
 ) -> tuple[int, int]:
     """Plan + execute a single goal. Returns (completed, total)."""
     from quetz import config as cfg
@@ -592,7 +593,7 @@ def _run_goal(
             continue
 
         print(f"\n▶️  {task.id}: {task.title}")
-        result = _execute_one(container, workspace, task, budget=budget, skip_acceptance=getattr(args, "no_validate", False))
+        result = _execute_one(container, workspace, task, budget=budget, skip_acceptance=skip_acceptance)
         UpdateMemoryUseCase(container.memory).record(task, result)
 
         if result.ok:
@@ -659,7 +660,7 @@ def _run_goal(
                             conventions=task.conventions,
                         )
                         print(f"\n   🔄 Retrying {task.id} with updated prompt...")
-                        result = _execute_one(container, workspace, task, budget=budget, skip_acceptance=getattr(args, "no_validate", False))
+                        result = _execute_one(container, workspace, task, budget=budget, skip_acceptance=skip_acceptance)
                         UpdateMemoryUseCase(container.memory).record(task, result)
                         if result.ok:
                             completed += 1
@@ -692,7 +693,7 @@ def _cmd_oneshot(args) -> int:
     if not goal or not goal.strip():
         raise SystemExit("Provide a prompt, e.g.: quetz-ai \"create a FastAPI endpoint\"")
 
-    completed, total = _run_goal(container, workspace, plan_path, goal, budget=args.budget)
+    completed, total = _run_goal(container, workspace, plan_path, goal, budget=args.budget, skip_acceptance=getattr(args, "no_validate", False))
     print(f"\n{'─'*50}")
     print(f"  {completed}/{total} task(s) completed.")
     print(f"{'─'*50}")
@@ -717,6 +718,7 @@ def _cmd_interactive(args) -> int:
         completed, total = _run_goal(
             container, workspace, plan_path, initial_goal,
             budget=args.budget, step_mode=True,
+            skip_acceptance=getattr(args, "no_validate", False),
         )
         print(f"\n  {completed}/{total} task(s) completed.\n")
 
@@ -738,6 +740,7 @@ def _cmd_interactive(args) -> int:
             completed, total = _run_goal(
                 container, workspace, plan_path, "(continue pending tasks)",
                 budget=args.budget, step_mode=True,
+                skip_acceptance=getattr(args, "no_validate", False),
             )
             print(f"\n  {completed}/{total} task(s) completed.\n")
             continue
@@ -745,6 +748,7 @@ def _cmd_interactive(args) -> int:
         completed, total = _run_goal(
             container, workspace, plan_path, user_input,
             budget=args.budget, step_mode=True,
+            skip_acceptance=getattr(args, "no_validate", False),
         )
         print(f"\n  {completed}/{total} task(s) completed.\n")
 
