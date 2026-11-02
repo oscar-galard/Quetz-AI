@@ -195,6 +195,33 @@ def _show_diff(workspace: str, paths: list[str]) -> None:
             print(f"   (cannot show diff)")
 
 
+def _verify_written(workspace: str, paths: list[str]) -> dict[str, list[str]]:
+    """Grep changed files for class/function definitions to verify code exists."""
+    import re
+    results: dict[str, list[str]] = {}
+    for p in paths:
+        full = os.path.join(workspace, p)
+        if not os.path.isfile(full):
+            continue
+        try:
+            with open(full, encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        except OSError:
+            continue
+
+        found = []
+        if p.endswith(".py"):
+            for m in re.finditer(r"^(?:class|def|async def)\s+(\w+)", content, re.MULTILINE):
+                found.append(m.group(0).split()[0] + " " + m.group(1))
+        elif p.endswith((".ts", ".tsx")):
+            for m in re.finditer(r"(?:export\s+)?(?:class|function|const)\s+(\w+)", content):
+                found.append(m.group(1))
+
+        if found:
+            results[p] = found[:10]
+    return results
+
+
 def _show_file_pager(path: str) -> None:
     """Open a file in the system pager."""
     import subprocess
@@ -609,6 +636,12 @@ def _run_goal(
             if result.changed_paths:
                 for p in result.changed_paths:
                     print(f"      {p}")
+                # Verify what was actually written (grep for symbols)
+                verified = _verify_written(workspace, list(result.changed_paths))
+                if verified:
+                    print("   📋 Written:")
+                    for path, symbols in verified.items():
+                        print(f"      {path}: {', '.join(symbols)}")
         else:
             plan = plan.with_task_status(task.id, TaskStatus.BLOCKED)
             print(f"   ❌ Blocked: {result.error}")
