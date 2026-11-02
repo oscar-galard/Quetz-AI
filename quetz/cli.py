@@ -414,15 +414,7 @@ def _execute_one(
     if task.setup_commands:
         runner = CommandRunner(workspace)
         for cmd in task.setup_commands:
-            tool_emoji = "🔧"
-            if "uv " in cmd:
-                tool_emoji = "🐍"
-            elif "npm " in cmd or "npx " in cmd:
-                tool_emoji = "📦"
-            elif "git " in cmd:
-                tool_emoji = "🔀"
-            elif "curl " in cmd or "wget " in cmd:
-                tool_emoji = "🌐"
+            tool_emoji = "⚙️"
             print(f"  {tool_emoji} {cmd}")
             result = runner.run(cmd)
             if not result.ok:
