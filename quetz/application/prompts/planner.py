@@ -184,6 +184,7 @@ def build_planner_messages(
     tree: str,
     conventions: str = "",
     memory: str = "",
+    code_summary: str = "",
 ) -> list[Turn]:
     user_parts = [
         "## GOAL",
@@ -192,6 +193,8 @@ def build_planner_messages(
         "## PROJECT TREE",
         tree.strip() or "(empty workspace)",
     ]
+    if code_summary.strip():
+        user_parts.extend(["", "## EXISTING CODE (class/function signatures)", code_summary.strip()])
     if conventions.strip():
         user_parts.extend(["", "## PROJECT CONVENTIONS", conventions.strip()])
     if memory.strip():

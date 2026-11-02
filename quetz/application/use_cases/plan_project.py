@@ -41,11 +41,13 @@ class PlanProjectUseCase:
         tree = build_tree(self._workspace, max_depth=4, max_entries=260)
         conventions = self._conventions()
         memory = self._memory()
+        code_summary = self._code_summary()
         messages = build_planner_messages(
             goal,
             tree=tree,
             conventions=conventions,
             memory=memory,
+            code_summary=code_summary,
         )
 
         # Stream the response so user can see which model is running
@@ -110,3 +112,49 @@ class PlanProjectUseCase:
         if not path.is_file():
             return ""
         return read_text(path, max_chars=8000)
+
+    def _code_summary(self) -> str:
+        """Read source files and show class/function signatures (the old read_file)."""
+        import ast
+        from quetz.infrastructure.fs.paths import iter_workspace_files
+
+        lines: list[str] = []
+        for rel_path in iter_workspace_files(self._workspace):
+            full = self._workspace / rel_path
+            try:
+                text = full.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+
+            if rel_path.endswith(".py"):
+                try:
+                    tree = ast.parse(text)
+                except SyntaxError:
+                    continue
+                exports = []
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.ClassDef):
+                        bases = [ast.unparse(b) for b in node.bases] if node.bases else []
+                        base_str = f"({', '.join(bases)})" if bases else ""
+                        exports.append(f"class {node.name}{base_str}")
+                    elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        if node.col_offset == 0:  # top-level only
+                            exports.append(f"def {node.name}()")
+                if exports:
+                    lines.append(f"{rel_path}:")
+                    for e in exports[:15]:
+                        lines.append(f"  {e}")
+            elif rel_path.endswith((".ts", ".tsx")):
+                import re
+                classes = re.findall(r"(?:export\s+)?(?:class|interface|type)\s+(\w+)", text)
+                funcs = re.findall(r"(?:export\s+)?(?:async\s+)?function\s+(\w+)", text)
+                hooks = re.findall(r"(?:export\s+)?function\s+(use\w+)", text)
+                exports = [f"class {c}" for c in classes[:5]] + \
+                         [f"function {f}" for f in funcs[:5]] + \
+                         [f"hook {h}" for h in hooks[:3]]
+                if exports:
+                    lines.append(f"{rel_path}:")
+                    for e in exports[:10]:
+                        lines.append(f"  {e}")
+
+        return "\n".join(lines) if lines else "(no source files found)"
