@@ -8,7 +8,7 @@ tags: [typescript, react, vite, tailwind, frontend, shadcn, npm, scaffold]
 
 **Setup commands (run in order):**
 ```bash
-npm create vite@latest frontend -- --template react-ts
+npx create-vite@latest frontend --template react-ts
 cd frontend && npm install
 npm install tailwindcss @tailwindcss/vite
 ```
