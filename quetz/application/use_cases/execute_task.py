@@ -152,6 +152,10 @@ class ExecuteTaskUseCase:
             prior_error = last_error
             self._editor.revert(applied)
 
+            # Show verbose validation error
+            self._report(f"  ❌ Validation failed: {last_error[:200]}")
+            self._report(f"     (debugger: {'on' if self._debugger else 'off'}, fixer: {'on' if self._fixer else 'off'})")
+
             # Debugger analyzes root cause, then Fixer applies targeted fix
             hypothesis = None
             if self._debugger is not None:
