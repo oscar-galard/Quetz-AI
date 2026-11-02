@@ -22,6 +22,40 @@ from quetz.infrastructure.tasks.store import (
 )
 from quetz.infrastructure.tools.commands import CommandRunner
 
+
+def _flush_stdin() -> None:
+    """Discard any stale buffered input so prompts actually wait."""
+    try:
+        import select
+        if not sys.stdin.isatty():
+            return
+        # Drain anything already buffered (e.g. pasted multi-line text)
+        while select.select([sys.stdin], [], [], 0)[0]:
+            line = sys.stdin.readline()
+            if not line:
+                break
+    except Exception:
+        pass
+
+
+def _read_goal(prompt: str = "› ") -> str:
+    """Read input; if a multi-line paste is pending, consume it all as one goal."""
+    import select
+    first = input(prompt)
+    if not sys.stdin.isatty():
+        return first
+    # If more data is already buffered (paste burst), consume it
+    extra: list[str] = []
+    try:
+        while select.select([sys.stdin], [], [], 0)[0]:
+            line = sys.stdin.readline()
+            if not line:
+                break
+            extra.append(line.rstrip("\n"))
+    except Exception:
+        pass
+    return "\n".join([first, *extra]).strip() if extra else first.strip()
+
 GREEN = "\033[38;5;46m"
 CYAN = "\033[38;5;51m"
 BOLD = "\033[1m"
@@ -243,6 +277,7 @@ def _edit_task_prompt(task: TaskSpec) -> str | None:
 
     print(f"\n   Type new prompt (or press Enter to keep current, 'cancel' to abort):")
     try:
+        _flush_stdin()
         new_prompt = input("   › ").strip()
     except (EOFError, KeyboardInterrupt):
         return None
@@ -586,6 +621,7 @@ def _run_goal(
         answers = []
         for q in plan.questions:
             try:
+                _flush_stdin()
                 answer = input("   › ").strip()
             except (EOFError, KeyboardInterrupt):
                 answer = ""
@@ -656,6 +692,7 @@ def _run_goal(
                 continue
 
             while True:
+                _flush_stdin()
                 try:
                     choice = input(
                         f"\n   [{remaining[0]}] [Y]ontinue [n]stop [d]iff [v]iew [e]dit prompt: "
@@ -764,7 +801,7 @@ def _cmd_interactive(args) -> int:
 
     while True:
         try:
-            user_input = input("› ").strip()
+            user_input = _read_goal()
         except (EOFError, KeyboardInterrupt):
             print("\nGoodbye.")
             break
