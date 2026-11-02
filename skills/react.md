@@ -49,5 +49,6 @@ Rules:
 
 ## shadcn/ui rules
 
-- Import components from `@/components/ui/*`, never rewrite primitives.
-- Extend via `className` / `asChild`; do not copy-paste component source.
+- **ONLY use `@/components/ui/*` if `src/components/ui/` folder appears in the project tree.** If not present, use plain HTML elements with Tailwind classes (`<button className="bg-orange-500 ...">`).
+- **NEVER use the `@/` import alias unless tsconfig shows `paths` configured.** Use relative imports instead (`./theme`, `../components/...`).
+- If shadcn IS installed: import components from `@/components/ui/*`, never rewrite primitives. Extend via `className` / `asChild`; do not copy-paste component source.

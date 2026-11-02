@@ -56,11 +56,14 @@ cd frontend && npm run build    # production build
 cd frontend && npm run lint     # run ESLint
 ```
 
-## shadcn/ui (optional, add later)
+## shadcn/ui (optional — only if user asks for it)
 
 ```bash
 cd frontend && npx shadcn@latest init
+cd frontend && npx shadcn@latest add button
 ```
+
+**Only install shadcn if the user explicitly requests it.** If shadcn is NOT in the project tree, use plain HTML elements with Tailwind classes. NEVER import from `@/components/ui/*` unless that folder exists in the tree.
 
 ## Rules
 
