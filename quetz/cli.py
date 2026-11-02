@@ -924,6 +924,14 @@ def main(argv: list[str] | None = None) -> None:
 
     # If first positional is NOT a subcommand, treat all positionals as prompt
     if first_positional and first_positional not in subcommands:
+        # Typo detection: suggest close matches for subcommands
+        import difflib
+        close = difflib.get_close_matches(first_positional, subcommands, n=1, cutoff=0.6)
+        if close:
+            print(f"❌ Unknown command '{first_positional}'. Did you mean '{close[0]}'?")
+            print(f"   Usage: quetz-ai {close[0]} --task T4")
+            raise SystemExit(1)
+
         # Separate flags from prompt words
         flags_only = []
         prompt_parts = []
