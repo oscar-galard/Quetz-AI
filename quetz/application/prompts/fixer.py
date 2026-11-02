@@ -7,17 +7,25 @@ from quetz.domain.model import Turn
 
 
 def _fence_for_path(path: str) -> str:
-    ext = Path(path).suffix.lower()
-    return {
-        ".py": "python",
-        ".ts": "typescript",
-        ".tsx": "tsx",
-        ".js": "javascript",
-        ".jsx": "jsx",
-        ".css": "css",
-        ".html": "html",
-        ".json": "json",
-    }.get(ext, "")
+    """Return a markdown code-fence language label from the file extension.
+
+    Generic: works for any language. Extension becomes the label with a few
+    common aliases. No stack assumptions.
+    """
+    ext = Path(path).suffix.lower().lstrip(".")
+    if not ext:
+        return ""
+    aliases = {
+        "py": "python",
+        "pyi": "python",
+        "ts": "typescript",
+        "js": "javascript",
+        "mjs": "javascript",
+        "cjs": "javascript",
+        "sh": "bash",
+        "yml": "yaml",
+    }
+    return aliases.get(ext, ext)
 
 
 FIXER_SYSTEM_PROMPT = (
