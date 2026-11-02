@@ -150,11 +150,11 @@ class ExecuteTaskUseCase:
 
             last_error = validation.render()
             prior_error = last_error
-            self._editor.revert(applied)
 
-            # Show verbose validation error
+            # Show verbose validation error — code STAYS on disk for manual editing
             self._report(f"  ❌ Validation failed: {last_error[:200]}")
             self._report(f"     (debugger: {'on' if self._debugger else 'off'}, fixer: {'on' if self._fixer else 'off'})")
+            self._report("     Code kept on disk — you can fix manually or let the fixer try.")
 
             # Debugger analyzes root cause, then Fixer applies targeted fix
             hypothesis = None
@@ -212,7 +212,7 @@ class ExecuteTaskUseCase:
                 except Exception as exc:
                     self._report(f"  ⚠️  Fixer crashed: {exc}")
 
-            self._report("  ❌ Validation failed; edits reverted. Retrying with the error.")
+            self._report("  ❌ Validation failed. Retrying with the error. Code kept on disk.")
 
         return ExecutionResult(
             task_id=task.id,

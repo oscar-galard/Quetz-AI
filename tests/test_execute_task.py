@@ -150,7 +150,8 @@ class TestExecuteTask(unittest.TestCase):
             self.assertEqual(result.status, "blocked")
             self.assertEqual(validator.calls, 1)
             self.assertTrue(validator.saw_file)
-            self.assertFalse((root / "a.py").exists())
+            # Code STAYS on disk for manual editing (no auto-revert)
+            self.assertTrue((root / "a.py").exists())
 
 
 if __name__ == "__main__":

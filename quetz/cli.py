@@ -702,15 +702,15 @@ def _run_goal(
                 _flush_stdin()
                 try:
                     choice = input(
-                        f"\n   [{remaining[0]}] [Y]ontinue [n]stop [d]iff [v]iew [e]dit prompt: "
+                        f"\n   [{remaining[0]}] [Y]ontinue [r]evert [d]iff [v]iew [e]dit prompt: "
                     ).strip().lower()
                 except (EOFError, KeyboardInterrupt):
                     choice = "n"
 
                 if choice in ("", "y", "yes", "continue", "next"):
                     break
-                elif choice in ("n", "no", "q", "quit", "stop"):
-                    print(f"   Stopped. Remaining: {', '.join(remaining)}")
+                elif choice in ("r", "revert", "n", "no", "q", "quit"):
+                    print(f"   Reverted. Remaining: {', '.join(remaining)}")
                     print(f"   Resume with: quetz-ai run")
                     return completed, len(plan.tasks)
                 elif choice == "d":
@@ -760,7 +760,7 @@ def _run_goal(
                     else:
                         print("   Prompt unchanged.")
                 else:
-                    print("   [Y]=continue  [n]=stop  [d]=diff  [v]=view file  [e]=edit prompt")
+                    print("   [Y]=continue  [r]=revert  [d]=diff  [v]=view file  [e]=edit prompt")
 
     return completed, len(plan.tasks)
 
