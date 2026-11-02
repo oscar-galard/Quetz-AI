@@ -107,7 +107,17 @@ class AtomicEditor:
                         ok=False,
                         error=f"Replace edit for {rel_path!r} has an empty find anchor.",
                     )
-                count = current.count(edit.find)
+
+                # Try raw find first, then line-number-stripped find
+                find_text = edit.find
+                count = current.count(find_text)
+                if count == 0:
+                    normalized = self._normalize_find(find_text)
+                    if normalized != find_text:
+                        count = current.count(normalized)
+                        if count > 0:
+                            find_text = normalized
+
                 if count == 0:
                     preview = repr(edit.find[:120])
                     return ApplyResult(
@@ -129,7 +139,7 @@ class AtomicEditor:
                             "Include more surrounding lines so the anchor is unique."
                         ),
                     )
-                final_contents[rel_path] = current.replace(edit.find, edit.replace, 1)
+                final_contents[rel_path] = current.replace(find_text, edit.replace, 1)
                 continue
 
             return ApplyResult(ok=False, error=f"Unsupported edit operation: {edit.op!r}")
@@ -166,6 +176,21 @@ class AtomicEditor:
     def revert(self, result: ApplyResult) -> None:
         for rel_path, original in result.originals.items():
             self._restore(rel_path, original)
+
+    @staticmethod
+    def _normalize_find(find: str) -> str:
+        """Strip leaked line-number prefixes from find anchors.
+
+        The context display shows files as '  1 | code', and local models
+        sometimes copy these prefixes into find text. Strip them so the
+        anchor matches the real file content.
+        """
+        import re as _re
+        lines = find.split("\n")
+        stripped = [
+            _re.sub(r"^\s*\d+\s*\|\s?", "", line) for line in lines
+        ]
+        return "\n".join(stripped)
 
     @staticmethod
     def _strip_unused_imports(content: str, path: str) -> str:
