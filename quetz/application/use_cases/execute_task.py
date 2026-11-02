@@ -12,6 +12,7 @@ from quetz import config as q_config
 from quetz.application.prompts.executor import build_executor_messages
 from quetz.application.ports.llm import LLMPort
 from quetz.application.ports.validator import ValidationPort
+from quetz.application.use_cases.debug_task import DebuggerUseCase
 from quetz.application.use_cases.fixer import FixerUseCase
 from quetz.domain.context import ContextBundle
 from quetz.domain.edit import ExecutionResult, parse_edit_plan
@@ -61,6 +62,7 @@ class ExecuteTaskUseCase:
         editor: AtomicEditor,
         validator: ValidationPort,
         fixer: FixerUseCase | None = None,
+        debugger: DebuggerUseCase | None = None,
         reporter: Reporter | None = None,
         skip_acceptance: bool = False,
     ) -> None:
@@ -68,6 +70,7 @@ class ExecuteTaskUseCase:
         self._editor = editor
         self._validator = validator
         self._fixer = fixer
+        self._debugger = debugger
         self._report = reporter or _noop
         self._skip_acceptance = skip_acceptance
 
@@ -149,13 +152,23 @@ class ExecuteTaskUseCase:
             prior_error = last_error
             self._editor.revert(applied)
 
-            # Try Fixer before full retry
+            # Debugger analyzes root cause, then Fixer applies targeted fix
+            hypothesis = None
+            if self._debugger is not None:
+                hypothesis = self._debugger.analyze(
+                    changed_paths=list(applied.changed_paths),
+                    workspace=str(self._editor.workspace),
+                    error=last_error,
+                    task_prompt=task.prompt,
+                )
+
             if self._fixer is not None:
                 fixed_plan = self._fixer.fix(
                     changed_paths=list(applied.changed_paths),
                     workspace=str(self._editor.workspace),
                     error=last_error,
                     task_prompt=task.prompt,
+                    hypothesis=hypothesis,
                 )
                 if fixed_plan and not fixed_plan.blocked:
                     fixed_applied = self._editor.apply(fixed_plan, task)

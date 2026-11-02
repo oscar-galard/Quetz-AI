@@ -504,11 +504,17 @@ def _execute_one(
     )
     bundle = compiler.execute(task)
 
-    # Fixer uses local model (cheap) to patch errors
+    # Debugger uses cloud model (fast) to analyze root cause
+    # Fixer uses local model (cheap) to apply targeted fixes
+    from quetz.application.use_cases.debug_task import DebuggerUseCase
     from quetz.application.use_cases.fixer import FixerUseCase
     from quetz.infrastructure.llm.factory import build_chat_model
     from quetz.infrastructure.llm.adapter import LangChainLLMAdapter
 
+    debugger = DebuggerUseCase(
+        llm=LangChainLLMAdapter(build_chat_model("planner")),
+        reporter=print,
+    )
     fixer = FixerUseCase(
         llm=LangChainLLMAdapter(build_chat_model("executor")),
         reporter=print,
@@ -519,6 +525,7 @@ def _execute_one(
         editor=container.make_editor(),
         validator=container.validator,
         fixer=fixer,
+        debugger=debugger,
         reporter=print,
         skip_acceptance=skip_acceptance,
     )

@@ -37,6 +37,7 @@ class FixerUseCase:
         workspace: str,
         error: str,
         task_prompt: str = "",
+        hypothesis: object | None = None,
     ) -> EditPlan | None:
         """Try to fix the error. Returns a corrected EditPlan or None."""
         # Read the current (reverted) code
@@ -49,7 +50,19 @@ class FixerUseCase:
         if not code_files:
             return None
 
-        messages = build_fixer_messages(code_files, error, task_prompt)
+        # Include debugger hypothesis if available
+        extra = ""
+        if hypothesis is not None:
+            extra = (
+                f"\n\n## DEBUGGER HYPOTHESIS\n"
+                f"Root cause: {getattr(hypothesis, 'root_cause', 'unknown')}\n"
+                f"Fix strategy: {getattr(hypothesis, 'fix_strategy', 'unknown')}\n"
+                f"Files to fix: {', '.join(getattr(hypothesis, 'files_to_fix', ()))}\n"
+                f"Change type: {getattr(hypothesis, 'change_type', 'replace')}\n"
+                f"Follow this strategy exactly."
+            )
+
+        messages = build_fixer_messages(code_files, error, task_prompt + extra)
         self._report(f"🔧 Fixer: analyzing {len(code_files)} file(s) for bug...")
 
         try:
