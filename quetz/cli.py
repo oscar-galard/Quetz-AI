@@ -592,9 +592,10 @@ def _run_goal(
             answers.append(answer)
 
         # Re-plan with answers
-        answered_goal = goal + "\n\nAnswers:\n" + "\n".join(
+        answered_goal = goal + "\n\nUser answers:\n" + "\n".join(
             f"- {q}: {a}" for q, a in zip(plan.questions, answers)
         )
+        answered_goal += "\n\nIMPORTANT: The goal is now clear. DO NOT ask more questions. Create the tasks now."
         print("\n🧠 Re-planning with answers...")
         try:
             plan = PlanProjectUseCase(
@@ -606,8 +607,8 @@ def _run_goal(
             print(f"❌ Planning failed: {exc}")
             return 0, 0
 
-        if plan.questions:
-            print("⚠️  Still ambiguous. Proceeding with best guess.")
+        if plan.questions and not plan.tasks:
+            print("⚠️  Still asking questions but has no tasks. Proceeding with empty plan.")
 
     _persist_plan(plan, plan_path)
     print(f"\n📋 {len(plan.tasks)} task(s):")
