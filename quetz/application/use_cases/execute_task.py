@@ -159,6 +159,16 @@ class ExecuteTaskUseCase:
                 if fixed_plan and not fixed_plan.blocked:
                     fixed_applied = self._editor.apply(fixed_plan, task)
                     if fixed_applied.ok:
+                        # Show what the fixer changed (inline diff)
+                        self._report("  🔧 Fixer patch:")
+                        for edit in fixed_plan.edits:
+                            if edit.op.value == "replace" and edit.find:
+                                self._report(f"    📝 {edit.file}")
+                                self._report(f"    - {edit.find.strip()[:120]}")
+                                self._report(f"    + {edit.replace.strip()[:120]}")
+                            else:
+                                self._report(f"    🆕 {edit.file}")
+
                         fix_validation = self._validator.validate(
                             task, list(fixed_applied.changed_paths),
                             skip_acceptance=self._skip_acceptance,
