@@ -312,7 +312,9 @@ def _cmd_execute(args) -> int:
         if result.changed_paths:
             print("   Changed files:")
             for path in result.changed_paths:
-                print(f"   - {path}")
+                full = os.path.join(workspace, path)
+                emoji = "🆕" if not os.path.exists(full) else "📝"
+                print(f"   {emoji} {path}")
         _persist_plan(plan.with_task_status(task.id, TaskStatus.DONE), plan_path)
         if commit_enabled:
             _commit_if_possible(
