@@ -11,6 +11,7 @@ from typing import Callable
 from quetz.application.prompts.executor import build_executor_messages
 from quetz.application.ports.llm import LLMPort
 from quetz.application.ports.validator import ValidationPort
+from quetz.application.use_cases.fixer import FixerUseCase
 from quetz.domain.context import ContextBundle
 from quetz.domain.edit import ExecutionResult, parse_edit_plan
 from quetz.domain.exceptions import EditError
@@ -58,12 +59,14 @@ class ExecuteTaskUseCase:
         llm: LLMPort,
         editor: AtomicEditor,
         validator: ValidationPort,
+        fixer: FixerUseCase | None = None,
         reporter: Reporter | None = None,
         skip_acceptance: bool = False,
     ) -> None:
         self._llm = llm
         self._editor = editor
         self._validator = validator
+        self._fixer = fixer
         self._report = reporter or _noop
         self._skip_acceptance = skip_acceptance
 
@@ -144,6 +147,38 @@ class ExecuteTaskUseCase:
             last_error = validation.render()
             prior_error = last_error
             self._editor.revert(applied)
+
+            # Try Fixer before full retry
+            if self._fixer is not None:
+                fixed_plan = self._fixer.fix(
+                    changed_paths=list(applied.changed_paths),
+                    workspace=str(self._editor.workspace),
+                    error=last_error,
+                    task_prompt=task.prompt,
+                )
+                if fixed_plan and not fixed_plan.blocked:
+                    fixed_applied = self._editor.apply(fixed_plan, task)
+                    if fixed_applied.ok:
+                        fix_validation = self._validator.validate(
+                            task, list(fixed_applied.changed_paths),
+                            skip_acceptance=self._skip_acceptance,
+                        )
+                        if fix_validation.ok:
+                            self._report(
+                                f"  ✅ Fixer succeeded; changed "
+                                f"{len(fixed_applied.changed_paths)} file(s)."
+                            )
+                            return ExecutionResult(
+                                task_id=task.id,
+                                ok=True,
+                                status="done",
+                                attempts=attempt,
+                                summary=fixed_plan.summary or plan.summary,
+                                changed_paths=fixed_applied.changed_paths,
+                                validation=fix_validation,
+                            )
+                        self._editor.revert(fixed_applied)
+
             self._report("  ❌ Validation failed; edits reverted. Retrying with the error.")
 
         return ExecutionResult(

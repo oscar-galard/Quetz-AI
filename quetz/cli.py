@@ -441,10 +441,22 @@ def _execute_one(
         reporter=print,
     )
     bundle = compiler.execute(task)
+
+    # Fixer uses local model (cheap) to patch errors
+    from quetz.application.use_cases.fixer import FixerUseCase
+    from quetz.infrastructure.llm.factory import build_chat_model
+    from quetz.infrastructure.llm.adapter import LangChainLLMAdapter
+
+    fixer = FixerUseCase(
+        llm=LangChainLLMAdapter(build_chat_model("executor")),
+        reporter=print,
+    )
+
     use_case = ExecuteTaskUseCase(
         llm=container.make_executor_llm(),
         editor=container.make_editor(),
         validator=container.validator,
+        fixer=fixer,
         reporter=print,
         skip_acceptance=skip_acceptance,
     )
