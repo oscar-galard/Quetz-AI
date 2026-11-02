@@ -129,11 +129,9 @@ class EditPlan:
 
 def _fix_json(text: str) -> str:
     """Fix common JSON quirks from local models (escaped quotes, trailing commas)."""
-    # Fix literal backslash-quotes inside string values: \" -> "
-    # But keep valid JSON escapes like \" at the boundary
-    # Pattern: a value like "foo \" bar" should become "foo " bar"
-    # We fix by replacing \" that appears between non-quote chars
-    text = re.sub(r'(?<=[^\\])\\"(?=[^"])', '"', text)
+    # Fix literal backslash-quotes that appear at string boundaries
+    # Pattern: "value": \"text\" -> "value": "text"
+    text = re.sub(r'(?<=": )\\"(.+?)\\"(?=[,\s}])', r'"\1"', text)
     # Remove trailing commas before } or ]
     text = re.sub(r',\s*([}\]])', r'\1', text)
     return text

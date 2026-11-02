@@ -69,7 +69,11 @@ class PlanProjectUseCase:
         raw = "".join(chunks) if chunks else (result.content or "")
         data = extract_json_object(raw)
         if data is None:
-            raise PlanError("Planner response did not contain a JSON plan object.")
+            preview = raw[:300].replace("\n", " ")
+            raise PlanError(
+                f"Planner response did not contain a JSON plan object. "
+                f"Preview: {preview}..."
+            )
 
         # Fix empty project name
         if not data.get("project", "").strip():
@@ -77,8 +81,14 @@ class PlanProjectUseCase:
 
         try:
             plan = Plan.from_dict(data)
-        except Exception as exc:  # TaskError/ValueError from domain validation
-            raise PlanError(f"Planner returned an invalid plan: {exc}") from exc
+        except Exception as exc:
+            # Show what we actually parsed
+            task_count = len(data.get("tasks", []))
+            preview = raw[:300].replace("\n", " ")
+            raise PlanError(
+                f"Planner returned an invalid plan: {exc}. "
+                f"Parsed {task_count} task(s). Preview: {preview}..."
+            ) from exc
 
         self._report(f"🗂  Planner produced {len(plan.tasks)} task(s).")
         return plan

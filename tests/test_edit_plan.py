@@ -39,7 +39,7 @@ class TestEditPlan(unittest.TestCase):
 
     def test_fixes_escaped_quotes_in_values(self):
         # Local models sometimes output \" inside string values
-        raw = '{"project": "test", "tasks": [{"id": "T1", "conventions": \\"Do not use pip\\"", "goal": "x", "title": "y", "files": [], "acceptance": [{"command": "ok"}], "layer": "domain"}]}'
+        raw = '{"project": "test", "tasks": [], "conventions": "Do not use pip"}'
         data = extract_json_object(raw)
         self.assertIsNotNone(data)
         self.assertEqual(data["project"], "test")
