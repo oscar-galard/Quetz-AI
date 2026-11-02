@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from typing import Callable
 
+from quetz import config as q_config
 from quetz.application.prompts.executor import build_executor_messages
 from quetz.application.ports.llm import LLMPort
 from quetz.application.ports.validator import ValidationPort
@@ -73,7 +74,7 @@ class ExecuteTaskUseCase:
     def execute(self, task: TaskSpec, context: ContextBundle) -> ExecutionResult:
         prior_error = ""
         last_error = ""
-        max_attempts = max(3, task.max_attempts)  # minimum 3, respects task config
+        max_attempts = max(q_config.DEFAULT_MAX_ATTEMPTS, task.max_attempts)
         degenerate_count = 0  # invalid responses don't count toward limit
 
         for attempt in range(1, max_attempts + 1):

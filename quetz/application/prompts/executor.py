@@ -47,7 +47,9 @@ EXECUTOR_SYSTEM_PROMPT = (
     "2. Modify ONLY files listed under ALLOWED FILES.\n"
     "3. For 'replace' edits, 'find' must be an exact, unique block copied from the\n"
     "   supplied file text. Preserve indentation and surrounding lines exactly.\n"
-    "4. Do not include line numbers in 'find'. Line numbers in the context are display-only.\n"
+    "4. Files are shown with line numbers (e.g., '  1 | code'). For 'find', copy\n"
+    "   ONLY the code text AFTER the line number marker (the ' | ' part). Never\n"
+    "   include line numbers in 'find'. Preserve EXACT whitespace and line breaks.\n"
     "5. Do not refactor unrelated code, add dependencies, or invent APIs.\n"
     "6. If the task is impossible with the supplied context, return status 'blocked'\n"
     "   with a specific reason. Do not guess.\n"
@@ -110,7 +112,14 @@ def _render_file(context_file: ContextFile) -> str:
         label += ", excerpt"
     label += ")"
     language = _fence_language(context_file.language)
-    return f"{label}\n```{language}\n{context_file.content.rstrip()}\n```"
+
+    # Add line numbers so the executor can copy exact text for find anchors
+    lines = context_file.content.rstrip().split("\n")
+    numbered = []
+    for i, line in enumerate(lines):
+        numbered.append(f"{context_file.start_line + i:4d} | {line}")
+
+    return f"{label}\n```{language}\n" + "\n".join(numbered) + "\n```"
 
 
 def render_context_bundle(bundle: ContextBundle) -> str:
