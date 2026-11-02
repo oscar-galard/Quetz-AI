@@ -58,6 +58,9 @@ class FixerUseCase:
             if plan.blocked:
                 self._report(f"   ❌ Fixer: {plan.reason}")
                 return None
+            if not plan.edits:
+                self._report("   ⚠️  Fixer returned no edits — skipping fix.")
+                return None
             self._report(f"   ✅ Fixer: {len(plan.edits)} edit(s) proposed")
             return plan
         except (EditError, Exception) as exc:

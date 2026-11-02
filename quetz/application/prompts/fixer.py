@@ -11,7 +11,9 @@ FIXER_SYSTEM_PROMPT = (
     "2. Fix ONLY the error described. Keep everything else unchanged.\n"
     "3. Use 'replace' edits with exact 'find' anchors from the supplied code.\n"
     "4. Keep the fix minimal. Do not refactor or add features.\n"
-    "5. If the fix is impossible, return status 'blocked' with a reason.\n"
+    "5. CRITICAL: You MUST return either (a) status='done' with at least ONE edit,\n"
+    "   OR (b) status='blocked' with a reason. NEVER return status='done' with\n"
+    "   empty edits. If you cannot fix the error, say 'blocked'.\n"
 )
 
 
