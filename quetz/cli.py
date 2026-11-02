@@ -352,10 +352,10 @@ def _configure_planner(args) -> None:
         return
     if args.planner == "local":
         config.PLANNER_MODE = "local"
-        config.PLANNER_MODEL = config.LOCAL_MODEL
+        config.PLANNER_MODEL = "qwen3-coder_IQ4XS:latest"
     else:
         config.PLANNER_MODE = "cloud"
-        config.PLANNER_MODEL = config.CLOUD_MODEL
+        config.PLANNER_MODEL = "gemini-2.0-flash"
 
 
 def _configure_executor(args) -> None:
@@ -363,10 +363,10 @@ def _configure_executor(args) -> None:
         return
     if args.executor == "cloud":
         config.EXECUTOR_MODE = "cloud"
-        config.EXECUTOR_MODEL = config.CLOUD_MODEL
+        config.EXECUTOR_MODEL = "gemini-2.0-flash"
     else:
         config.EXECUTOR_MODE = "local"
-        config.EXECUTOR_MODEL = config.LOCAL_MODEL
+        config.EXECUTOR_MODEL = "qwen3-coder_IQ4XS:latest"
 
 
 def _cmd_plan(args) -> int:

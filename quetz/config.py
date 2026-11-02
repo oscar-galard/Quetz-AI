@@ -2,17 +2,8 @@ import os
 
 # Default values
 WORKSPACE_DIR = "."
-MAX_ITERATIONS = 25
-INTERACTIVE_MODE = False
-VERBOSE = False
-MODE = "local"
-LOCAL_MODEL = "qwen3-coder_IQ4XS:latest"
-CLOUD_MODEL = "gpt-4o"
 CLOUD_API_KEY = ""
 CLOUD_BASE_URL = None
-MODEL_NAME = "qwen3-coder_IQ4XS:latest"
-NO_CONTEXT = False
-DEBUG_MODE = False
 NO_REVIEWER = False
 
 def load_dotenv(dotenv_path: str = None) -> None:
@@ -72,34 +63,24 @@ def _bool_env(name: str, default: bool) -> bool:
         return default
     return value.strip().lower() in ("1", "true", "yes", "on")
 
-
-MODE = os.environ.get("MODE", "local").lower()
-LOCAL_MODEL = os.environ.get("LOCAL_MODEL", os.environ.get("QUETZ_MODEL", "qwen3-coder_IQ4XS:latest"))
-CLOUD_MODEL = os.environ.get("CLOUD_MODEL", "gpt-4o")
 CLOUD_API_KEY = os.environ.get("CLOUD_API_KEY", "")
 CLOUD_BASE_URL = os.environ.get("CLOUD_BASE_URL", "").strip() or None
 
 # Local-model context window / max output tokens (Ollama num_ctx / num_predict).
-# Bump NUM_CTX (e.g. to 12288) if your local model supports a larger window.
 NUM_CTX = int(os.environ.get("NUM_CTX", "8192"))
 NUM_PREDICT = int(os.environ.get("NUM_PREDICT", "2048"))
 TEMP = float(os.environ.get("TEMP", "0.0"))
 
 # -- Planner / executor split -------------------------------------------------
-# The planner is typically cloud-hosted; the executor is always the local
-# stateless model. PLANNER_* falls back to the legacy CLOUD_*/MODE settings.
 EXECUTOR_MODE = os.environ.get("EXECUTOR_MODE", "local").lower()
-EXECUTOR_MODEL = os.environ.get("EXECUTOR_MODEL", LOCAL_MODEL)
+EXECUTOR_MODEL = os.environ.get("EXECUTOR_MODEL", "qwen3-coder_IQ4XS:latest")
 EXECUTOR_NUM_CTX = int(os.environ.get("EXECUTOR_NUM_CTX", os.environ.get("NUM_CTX", "12288")))
 EXECUTOR_NUM_PREDICT = int(
     os.environ.get("EXECUTOR_NUM_PREDICT", os.environ.get("NUM_PREDICT", "4096"))
 )
 
-PLANNER_MODE = os.environ.get("PLANNER_MODE", MODE).lower()
-PLANNER_MODEL = os.environ.get(
-    "PLANNER_MODEL",
-    CLOUD_MODEL if PLANNER_MODE == "cloud" else LOCAL_MODEL,
-)
+PLANNER_MODE = os.environ.get("PLANNER_MODE", "cloud").lower()
+PLANNER_MODEL = os.environ.get("PLANNER_MODEL", "gemini-2.0-flash")
 PLANNER_API_KEY = os.environ.get("PLANNER_API_KEY", CLOUD_API_KEY)
 PLANNER_BASE_URL = (
     os.environ.get("PLANNER_BASE_URL", CLOUD_BASE_URL or "").strip() or None
@@ -131,11 +112,6 @@ DEFAULT_MAX_ATTEMPTS = int(os.environ.get("DEFAULT_MAX_ATTEMPTS", "5"))
 VALIDATION_TIMEOUT = int(os.environ.get("VALIDATION_TIMEOUT", "300"))
 AUTO_COMMIT = _bool_env("AUTO_COMMIT", True)
 GIT_BRANCH_PREFIX = os.environ.get("GIT_BRANCH_PREFIX", "quetz/")
-
-if MODE == "cloud":
-    MODEL_NAME = CLOUD_MODEL
-else:
-    MODEL_NAME = LOCAL_MODEL
 
 # Map LANGSMITH_* environment variables to LANGCHAIN_* equivalents for LangChain/LangSmith SDK compatibility
 if os.environ.get("LANGSMITH_TRACING", "").lower() == "true":
