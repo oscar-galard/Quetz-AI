@@ -132,6 +132,13 @@ class AtomicEditor:
 
             return ApplyResult(ok=False, error=f"Unsupported edit operation: {edit.op!r}")
 
+        # Strip unused imports before writing (prevents TS6133 errors)
+        for rel_path in final_contents:
+            if rel_path.endswith((".py", ".ts", ".tsx", ".js", ".jsx")):
+                final_contents[rel_path] = self._strip_unused_imports(
+                    final_contents[rel_path], rel_path
+                )
+
         written: list[str] = []
         try:
             for rel_path, content in final_contents.items():
@@ -157,6 +164,59 @@ class AtomicEditor:
     def revert(self, result: ApplyResult) -> None:
         for rel_path, original in result.originals.items():
             self._restore(rel_path, original)
+
+    @staticmethod
+    def _strip_unused_imports(content: str, path: str) -> str:
+        """Remove imports whose names are never used in the file body."""
+        import re as _re
+
+        lines = content.split("\n")
+        import_lines = []
+        body_lines = []
+        in_import = False
+
+        for line in lines:
+            stripped = line.strip()
+            if _re.match(r"^(import |from |const .* = require\(|import\()", stripped):
+                in_import = True
+                import_lines.append(line)
+            elif in_import and (stripped.startswith(("(", ")", "{", "}", "  ", "  ")) or stripped.endswith((",", "(", "{"))):
+                import_lines.append(line)
+            else:
+                in_import = False
+                body_lines.append(line)
+
+        body_text = "\n".join(body_lines)
+        kept = []
+        for line in import_lines:
+            # Extract imported names
+            names = set()
+            # from X import A, B, C
+            m = _re.match(r"^from\s+\S+\s+import\s+(.+)$", line.strip())
+            if m:
+                for part in m.group(1).split(","):
+                    part = part.strip()
+                    if " as " in part:
+                        part = part.split(" as ")[1].strip()
+                    if part and part != "*":
+                        names.add(part.split(".")[0])
+            # import X, Y
+            m = _re.match(r"^import\s+(.+)$", line.strip())
+            if m:
+                for part in m.group(1).split(","):
+                    part = part.strip().split(" as ")[-1].strip()
+                    if part:
+                        names.add(part.split(".")[0])
+
+            # Check if any name is used in body
+            used = any(
+                _re.search(r"\b" + _re.escape(name) + r"\b", body_text)
+                for name in names
+            )
+            if used or not names:
+                kept.append(line)
+
+        return "\n".join(kept + body_lines)
 
     def _restore(self, rel_path: str, original: str | None) -> None:
         full_path = resolve_workspace_path(self.workspace, rel_path)

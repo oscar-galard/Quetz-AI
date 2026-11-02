@@ -159,53 +159,58 @@ class ExecuteTaskUseCase:
             # Debugger analyzes root cause, then Fixer applies targeted fix
             hypothesis = None
             if self._debugger is not None:
-                hypothesis = self._debugger.analyze(
-                    changed_paths=list(applied.changed_paths),
-                    workspace=str(self._editor.workspace),
-                    error=last_error,
-                    task_prompt=task.prompt,
-                )
+                try:
+                    hypothesis = self._debugger.analyze(
+                        changed_paths=list(applied.changed_paths),
+                        workspace=str(self._editor.workspace),
+                        error=last_error,
+                        task_prompt=task.prompt,
+                    )
+                except Exception as exc:
+                    self._report(f"  ⚠️  Debugger crashed: {exc}")
 
             if self._fixer is not None:
-                fixed_plan = self._fixer.fix(
-                    changed_paths=list(applied.changed_paths),
-                    workspace=str(self._editor.workspace),
-                    error=last_error,
-                    task_prompt=task.prompt,
-                    hypothesis=hypothesis,
-                )
-                if fixed_plan and not fixed_plan.blocked:
-                    fixed_applied = self._editor.apply(fixed_plan, task)
-                    if fixed_applied.ok:
-                        # Show what the fixer changed (inline diff)
-                        self._report("  🔧 Fixer patch:")
-                        for edit in fixed_plan.edits:
-                            if edit.op.value == "replace" and edit.find:
-                                self._report(f"    📝 {edit.file}")
-                                self._report(f"    - {edit.find.strip()[:120]}")
-                                self._report(f"    + {edit.replace.strip()[:120]}")
-                            else:
-                                self._report(f"    🆕 {edit.file}")
+                try:
+                    fixed_plan = self._fixer.fix(
+                        changed_paths=list(applied.changed_paths),
+                        workspace=str(self._editor.workspace),
+                        error=last_error,
+                        task_prompt=task.prompt,
+                        hypothesis=hypothesis,
+                    )
+                    if fixed_plan and not fixed_plan.blocked:
+                        fixed_applied = self._editor.apply(fixed_plan, task)
+                        if fixed_applied.ok:
+                            self._report("  🔧 Fixer patch:")
+                            for edit in fixed_plan.edits:
+                                if edit.op.value == "replace" and edit.find:
+                                    self._report(f"    📝 {edit.file}")
+                                    self._report(f"    - {edit.find.strip()[:120]}")
+                                    self._report(f"    + {edit.replace.strip()[:120]}")
+                                else:
+                                    self._report(f"    🆕 {edit.file}")
 
-                        fix_validation = self._validator.validate(
-                            task, list(fixed_applied.changed_paths),
-                            skip_acceptance=self._skip_acceptance,
-                        )
-                        if fix_validation.ok:
-                            self._report(
-                                f"  ✅ Fixer succeeded; changed "
-                                f"{len(fixed_applied.changed_paths)} file(s)."
+                            fix_validation = self._validator.validate(
+                                task, list(fixed_applied.changed_paths),
+                                skip_acceptance=self._skip_acceptance,
                             )
-                            return ExecutionResult(
-                                task_id=task.id,
-                                ok=True,
-                                status="done",
-                                attempts=attempt,
-                                summary=fixed_plan.summary or plan.summary,
-                                changed_paths=fixed_applied.changed_paths,
-                                validation=fix_validation,
-                            )
-                        self._editor.revert(fixed_applied)
+                            if fix_validation.ok:
+                                self._report(
+                                    f"  ✅ Fixer succeeded; changed "
+                                    f"{len(fixed_applied.changed_paths)} file(s)."
+                                )
+                                return ExecutionResult(
+                                    task_id=task.id,
+                                    ok=True,
+                                    status="done",
+                                    attempts=attempt,
+                                    summary=fixed_plan.summary or plan.summary,
+                                    changed_paths=fixed_applied.changed_paths,
+                                    validation=fix_validation,
+                                )
+                            self._editor.revert(fixed_applied)
+                except Exception as exc:
+                    self._report(f"  ⚠️  Fixer crashed: {exc}")
 
             self._report("  ❌ Validation failed; edits reverted. Retrying with the error.")
 
