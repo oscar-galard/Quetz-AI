@@ -70,6 +70,9 @@ EXECUTOR_SYSTEM_PROMPT = (
     "   No error handling unless the task explicitly asks for it.\n"
     "10. Keep it simple enough to read in Emacs. Plain code, not framework magic.\n"
     "11. Comment only if the 'why' is non-obvious. One line max.\n"
+    "12. React 17+ does NOT need 'import React from \"react\"' unless you use\n"
+    "   React.something explicitly. In .tsx files, just import hooks: 'import { useState } from \"react\"'.\n"
+    "   An unused import causes a build error. NEVER import React if you don't use it.\n"
 )
 
 _EXAMPLE = {
