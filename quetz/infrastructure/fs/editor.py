@@ -109,21 +109,23 @@ class AtomicEditor:
                     )
                 count = current.count(edit.find)
                 if count == 0:
-                    preview = " ".join(edit.find.strip().split())[:160]
+                    preview = repr(edit.find[:120])
                     return ApplyResult(
                         ok=False,
                         error=(
-                            f"find block not found in {rel_path!r}. Preview: {preview!r}. "
-                            "Copy the anchor exactly from the supplied file text."
+                            f"find block not found in {rel_path!r}. "
+                            f"Got: {preview}. "
+                            "Copy the anchor exactly from the supplied file text "
+                            "including whitespace and line breaks."
                         ),
                     )
                 if count > 1:
-                    preview = " ".join(edit.find.strip().split())[:160]
+                    preview = repr(edit.find[:120])
                     return ApplyResult(
                         ok=False,
                         error=(
                             f"find block matches {count} times in {rel_path!r}. "
-                            f"Preview: {preview!r}. "
+                            f"Got: {preview}. "
                             "Include more surrounding lines so the anchor is unique."
                         ),
                     )

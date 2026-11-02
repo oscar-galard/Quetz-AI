@@ -698,8 +698,8 @@ def _run_goal(
             if not remaining:
                 continue
 
+            _flush_stdin()
             while True:
-                _flush_stdin()
                 try:
                     choice = input(
                         f"\n   [{remaining[0]}] [Y]ontinue [r]evert [d]iff [v]iew [e]dit prompt: "

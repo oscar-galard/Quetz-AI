@@ -1,7 +1,24 @@
 """Prompt for the Debugger node — analyze errors before fixing."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from quetz.domain.model import Turn
+
+
+def _fence_for_path(path: str) -> str:
+    ext = Path(path).suffix.lower()
+    return {
+        ".py": "python",
+        ".ts": "typescript",
+        ".tsx": "tsx",
+        ".js": "javascript",
+        ".jsx": "jsx",
+        ".css": "css",
+        ".html": "html",
+        ".json": "json",
+    }.get(ext, "")
+
 
 DEBUGGER_SYSTEM_PROMPT = (
     "You are Quetz Debugger. You receive code that FAILED validation and the error.\n"
@@ -12,6 +29,7 @@ DEBUGGER_SYSTEM_PROMPT = (
     "3. Identify the ROOT CAUSE (not just the symptom).\n"
     "4. Suggest the MINIMAL fix strategy.\n"
     "5. Specify exactly which file(s) need changes and what type of change.\n"
+    "6. Code is shown in its native language — infer it from the file extension.\n"
 )
 
 
@@ -28,7 +46,8 @@ def build_debugger_messages(
         "## CURRENT CODE",
     ]
     for path, content in code_files.items():
-        parts.append(f"### {path}\n```\n{content}\n```")
+        lang = _fence_for_path(path)
+        parts.append(f"### {path}\n```{lang}\n{content}\n```")
 
     parts.extend([
         "",

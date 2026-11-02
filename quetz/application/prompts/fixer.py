@@ -1,7 +1,24 @@
 """Prompt for the Fixer node — targeted bug fixes, not full regeneration."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from quetz.domain.model import Turn
+
+
+def _fence_for_path(path: str) -> str:
+    ext = Path(path).suffix.lower()
+    return {
+        ".py": "python",
+        ".ts": "typescript",
+        ".tsx": "tsx",
+        ".js": "javascript",
+        ".jsx": "jsx",
+        ".css": "css",
+        ".html": "html",
+        ".json": "json",
+    }.get(ext, "")
+
 
 FIXER_SYSTEM_PROMPT = (
     "You are Quetz Fixer. You receive code that FAILED validation and the error.\n"
@@ -14,6 +31,7 @@ FIXER_SYSTEM_PROMPT = (
     "5. CRITICAL: You MUST return either (a) status='done' with at least ONE edit,\n"
     "   OR (b) status='blocked' with a reason. NEVER return status='done' with\n"
     "   empty edits. If you cannot fix the error, say 'blocked'.\n"
+    "6. Code is shown in its native language — infer it from the file extension.\n"
 )
 
 
@@ -30,7 +48,8 @@ def build_fixer_messages(
         "## CURRENT CODE",
     ]
     for path, content in code_files.items():
-        parts.append(f"### {path}\n```python\n{content}\n```")
+        lang = _fence_for_path(path)
+        parts.append(f"### {path}\n```{lang}\n{content}\n```")
 
     parts.extend([
         "",
