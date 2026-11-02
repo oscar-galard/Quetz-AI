@@ -12,8 +12,6 @@ from quetz import config as q_config
 from quetz.application.prompts.executor import build_executor_messages
 from quetz.application.ports.llm import LLMPort
 from quetz.application.ports.validator import ValidationPort
-from quetz.application.use_cases.debug_task import DebuggerUseCase
-from quetz.application.use_cases.fixer import FixerUseCase
 from quetz.domain.context import ContextBundle
 from quetz.domain.edit import ExecutionResult, parse_edit_plan
 from quetz.domain.exceptions import EditError
@@ -55,22 +53,20 @@ def _noop(_text: str) -> None:
 
 
 class ExecuteTaskUseCase:
+    """Executor: writes code from instructions. ONE job — no error recovery."""
+
     def __init__(
         self,
         *,
         llm: LLMPort,
         editor: AtomicEditor,
         validator: ValidationPort,
-        fixer: FixerUseCase | None = None,
-        debugger: DebuggerUseCase | None = None,
         reporter: Reporter | None = None,
         skip_acceptance: bool = False,
     ) -> None:
         self._llm = llm
         self._editor = editor
         self._validator = validator
-        self._fixer = fixer
-        self._debugger = debugger
         self._report = reporter or _noop
         self._skip_acceptance = skip_acceptance
 
@@ -151,68 +147,10 @@ class ExecuteTaskUseCase:
             last_error = validation.render()
             prior_error = last_error
 
-            # Show verbose validation error — code STAYS on disk for manual editing
+            # Show verbose validation error — code STAYS on disk
             self._report(f"  ❌ Validation failed: {last_error[:200]}")
-            self._report(f"     (debugger: {'on' if self._debugger else 'off'}, fixer: {'on' if self._fixer else 'off'})")
-            self._report("     Code kept on disk — you can fix manually or let the fixer try.")
-
-            # Debugger analyzes root cause, then Fixer applies targeted fix
-            hypothesis = None
-            if self._debugger is not None:
-                try:
-                    hypothesis = self._debugger.analyze(
-                        changed_paths=list(applied.changed_paths),
-                        workspace=str(self._editor.workspace),
-                        error=last_error,
-                        task_prompt=task.prompt,
-                    )
-                except Exception as exc:
-                    self._report(f"  ⚠️  Debugger crashed: {exc}")
-
-            if self._fixer is not None:
-                try:
-                    fixed_plan = self._fixer.fix(
-                        changed_paths=list(applied.changed_paths),
-                        workspace=str(self._editor.workspace),
-                        error=last_error,
-                        task_prompt=task.prompt,
-                        hypothesis=hypothesis,
-                    )
-                    if fixed_plan and not fixed_plan.blocked:
-                        fixed_applied = self._editor.apply(fixed_plan, task)
-                        if fixed_applied.ok:
-                            self._report("  🔧 Fixer patch:")
-                            for edit in fixed_plan.edits:
-                                if edit.op.value == "replace" and edit.find:
-                                    self._report(f"    📝 {edit.file}")
-                                    self._report(f"    - {edit.find.strip()[:120]}")
-                                    self._report(f"    + {edit.replace.strip()[:120]}")
-                                else:
-                                    self._report(f"    🆕 {edit.file}")
-
-                            fix_validation = self._validator.validate(
-                                task, list(fixed_applied.changed_paths),
-                                skip_acceptance=self._skip_acceptance,
-                            )
-                            if fix_validation.ok:
-                                self._report(
-                                    f"  ✅ Fixer succeeded; changed "
-                                    f"{len(fixed_applied.changed_paths)} file(s)."
-                                )
-                                return ExecutionResult(
-                                    task_id=task.id,
-                                    ok=True,
-                                    status="done",
-                                    attempts=attempt,
-                                    summary=fixed_plan.summary or plan.summary,
-                                    changed_paths=fixed_applied.changed_paths,
-                                    validation=fix_validation,
-                                )
-                            self._editor.revert(fixed_applied)
-                except Exception as exc:
-                    self._report(f"  ⚠️  Fixer crashed: {exc}")
-
-            self._report("  ❌ Validation failed. Retrying with the error. Code kept on disk.")
+            self._report("     Code kept on disk — you can fix manually or let the orchestrator try.")
+            self._report("  ❌ Retrying with the error.")
 
         return ExecutionResult(
             task_id=task.id,

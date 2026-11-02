@@ -504,13 +504,20 @@ def _execute_one(
     )
     bundle = compiler.execute(task)
 
-    # Debugger uses cloud model (fast) to analyze root cause
-    # Fixer uses local model (cheap) to apply targeted fixes
+    # Orchestrator coordinates: Executor → Validator → Debugger → Fixer
     from quetz.application.use_cases.debug_task import DebuggerUseCase
     from quetz.application.use_cases.fixer import FixerUseCase
+    from quetz.application.use_cases.orchestrate import OrchestrateTaskUseCase
     from quetz.infrastructure.llm.factory import build_chat_model
     from quetz.infrastructure.llm.adapter import LangChainLLMAdapter
 
+    executor = ExecuteTaskUseCase(
+        llm=container.make_executor_llm(),
+        editor=container.make_editor(),
+        validator=container.validator,
+        reporter=print,
+        skip_acceptance=skip_acceptance,
+    )
     debugger = DebuggerUseCase(
         llm=LangChainLLMAdapter(build_chat_model("planner")),
         reporter=print,
@@ -520,16 +527,15 @@ def _execute_one(
         reporter=print,
     )
 
-    use_case = ExecuteTaskUseCase(
-        llm=container.make_executor_llm(),
-        editor=container.make_editor(),
-        validator=container.validator,
-        fixer=fixer,
+    orchestrator = OrchestrateTaskUseCase(
+        executor=executor,
         debugger=debugger,
+        fixer=fixer,
+        validator=container.validator,
+        editor=container.make_editor(),
         reporter=print,
-        skip_acceptance=skip_acceptance,
     )
-    return use_case.execute(task, bundle)
+    return orchestrator.run(task, bundle)
 
 
 def _cmd_run(args) -> int:
