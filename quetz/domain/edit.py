@@ -19,6 +19,8 @@ from quetz.domain.task_spec import normalize_rel_path
 class EditOp(str, Enum):
     CREATE = "create"
     REPLACE = "replace"
+    APPEND = "append"
+    PREPEND = "prepend"
 
 
 _OP_ALIASES = {
@@ -29,6 +31,9 @@ _OP_ALIASES = {
     "edit": EditOp.REPLACE,
     "update": EditOp.REPLACE,
     "patch": EditOp.REPLACE,
+    "append": EditOp.APPEND,
+    "add": EditOp.APPEND,
+    "prepend": EditOp.PREPEND,
 }
 
 
@@ -44,6 +49,8 @@ class FileEdit:
         object.__setattr__(self, "file", normalize_rel_path(self.file))
         if self.op is EditOp.REPLACE and not self.find:
             raise EditError(f"Replace edit for {self.file!r} has an empty 'find' anchor.")
+        if self.op in (EditOp.CREATE, EditOp.APPEND, EditOp.PREPEND) and not self.content:
+            raise EditError(f"{self.op.value} edit for {self.file!r} has no content.")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "FileEdit":

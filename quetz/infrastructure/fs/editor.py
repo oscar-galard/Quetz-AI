@@ -76,6 +76,26 @@ class AtomicEditor:
                 final_contents[rel_path] = edit.content
                 continue
 
+            if edit.op is EditOp.APPEND:
+                if originals.get(rel_path) is None and rel_path not in final_contents:
+                    return ApplyResult(
+                        ok=False,
+                        error=f"Cannot append to {rel_path!r}: file does not exist. Use op='create'.",
+                    )
+                separator = "\n" if current and not current.endswith("\n") else ""
+                final_contents[rel_path] = current + separator + edit.content
+                continue
+
+            if edit.op is EditOp.PREPEND:
+                if originals.get(rel_path) is None and rel_path not in final_contents:
+                    return ApplyResult(
+                        ok=False,
+                        error=f"Cannot prepend to {rel_path!r}: file does not exist. Use op='create'.",
+                    )
+                separator = "\n" if current and not current.startswith("\n") else ""
+                final_contents[rel_path] = edit.content + separator + current
+                continue
+
             if edit.op is EditOp.REPLACE:
                 if originals.get(rel_path) is None and rel_path not in final_contents:
                     return ApplyResult(

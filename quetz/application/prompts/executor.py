@@ -25,7 +25,7 @@ EDIT_PLAN_SCHEMA: dict = {
                 "type": "object",
                 "properties": {
                     "file": {"type": "string"},
-                    "op": {"type": "string", "enum": ["create", "replace"]},
+                    "op": {"type": "string", "enum": ["create", "replace", "append", "prepend"]},
                     "content": {"type": "string"},
                     "find": {"type": "string"},
                     "replace": {"type": "string"},
@@ -45,9 +45,12 @@ EXECUTOR_SYSTEM_PROMPT = (
     "Hard rules:\n"
     "1. Output ONLY valid JSON matching the schema. No markdown, no prose, no code fences.\n"
     "2. Modify ONLY files listed under ALLOWED FILES.\n"
-    "3. For 'replace' edits, 'find' must be an exact, unique block copied from the\n"
+    "3. Edit operations: 'create' (new file), 'replace' (find+replace existing text),\n"
+    "   'append' (add content to END of existing file), 'prepend' (add to START).\n"
+    "   Use 'append' when adding new CSS rules, functions, or imports — NOT 'replace'.\n"
+    "4. For 'replace', 'find' must be an exact, unique block copied from the\n"
     "   supplied file text. Preserve indentation and surrounding lines exactly.\n"
-    "4. Files are shown with line numbers (e.g., '  1 | code'). For 'find', copy\n"
+    "5. Files are shown with line numbers (e.g., '  1 | code'). For 'find', copy\n"
     "   ONLY the code text AFTER the line number marker (the ' | ' part). Never\n"
     "   include line numbers in 'find'. Preserve EXACT whitespace and line breaks.\n"
     "5. Do not refactor unrelated code, add dependencies, or invent APIs.\n"
@@ -105,7 +108,7 @@ def _fence_language(language: str) -> str:
 def _render_file(context_file: ContextFile) -> str:
     if context_file.is_new:
         return f"### {context_file.path} (NEW FILE - use op=create)"
-    label = f"### {context_file.path} (existing"
+    label = f"### {context_file.path} (existing — use op=append or op=replace"
     if context_file.end_line:
         label += f", lines {context_file.start_line}-{context_file.end_line}"
     if context_file.truncated:
