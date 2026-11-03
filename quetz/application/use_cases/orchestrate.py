@@ -9,6 +9,7 @@ from typing import Callable
 
 from quetz.application.ports.llm import LLMPort
 from quetz.application.ports.validator import ValidationPort
+from quetz.application.use_cases.analyze_task import AnalyzerUseCase
 from quetz.application.use_cases.debug_task import DebuggerUseCase
 from quetz.application.use_cases.execute_task import ExecuteTaskUseCase
 from quetz.application.use_cases.fixer import FixerUseCase
@@ -31,6 +32,7 @@ class OrchestrateTaskUseCase:
         self,
         *,
         executor: ExecuteTaskUseCase,
+        analyzer: AnalyzerUseCase | None = None,
         debugger: DebuggerUseCase | None = None,
         fixer: FixerUseCase | None = None,
         validator: ValidationPort | None = None,
@@ -38,6 +40,7 @@ class OrchestrateTaskUseCase:
         reporter: Reporter | None = None,
     ) -> None:
         self._executor = executor
+        self._analyzer = analyzer
         self._debugger = debugger
         self._fixer = fixer
         self._validator = validator
@@ -46,7 +49,50 @@ class OrchestrateTaskUseCase:
 
     def run(self, task: TaskSpec, context: ContextBundle) -> ExecutionResult:
         """Execute task with full error recovery pipeline."""
-        # 1. Executor writes code
+        # Check if task is improvement (existing files) or creation (new files)
+        has_existing = bool(task.files)
+        has_new = bool(task.allowed_new_files)
+
+        # For improvement tasks, use Analyzer (cloud) for precise edits
+        if has_existing and self._analyzer is not None and self._editor is not None:
+            self._report("🔍 Orchestrator: improvement task — analyzing code...")
+            plan = self._analyzer.analyze(
+                changed_paths=list(task.files),
+                workspace=str(self._editor.workspace),
+                goal=task.prompt,
+                conventions=task.conventions,
+            )
+            if plan and not plan.blocked:
+                applied = self._editor.apply(plan, task)
+                if applied.ok:
+                    if self._validator is not None:
+                        validation = self._validator.validate(
+                            task, list(applied.changed_paths), skip_acceptance=False
+                        )
+                        if validation.ok:
+                            self._report("  ✅ Analyzer: precise edits applied!")
+                            return ExecutionResult(
+                                task_id=task.id,
+                                ok=True,
+                                status="done",
+                                attempts=1,
+                                summary=plan.summary,
+                                changed_paths=applied.changed_paths,
+                                validation=validation,
+                            )
+                    else:
+                        self._report("  ✅ Analyzer: edits applied (no validator)")
+                        return ExecutionResult(
+                            task_id=task.id,
+                            ok=True,
+                            status="done",
+                            attempts=1,
+                            summary=plan.summary,
+                            changed_paths=applied.changed_paths,
+                        )
+                    self._editor.revert(applied)
+
+        # For creation tasks (or analyzer failed), use Executor (local)
         result = self._executor.execute(task, context)
         if result.ok:
             return result

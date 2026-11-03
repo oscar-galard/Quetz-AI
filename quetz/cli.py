@@ -504,7 +504,8 @@ def _execute_one(
     )
     bundle = compiler.execute(task)
 
-    # Orchestrator coordinates: Executor → Validator → Debugger → Fixer
+    # Orchestrator: Analyzer → Executor → Validator → Debugger → Fixer
+    from quetz.application.use_cases.analyze_task import AnalyzerUseCase
     from quetz.application.use_cases.debug_task import DebuggerUseCase
     from quetz.application.use_cases.fixer import FixerUseCase
     from quetz.application.use_cases.orchestrate import OrchestrateTaskUseCase
@@ -518,6 +519,10 @@ def _execute_one(
         reporter=print,
         skip_acceptance=skip_acceptance,
     )
+    analyzer = AnalyzerUseCase(
+        llm=LangChainLLMAdapter(build_chat_model("planner")),
+        reporter=print,
+    )
     debugger = DebuggerUseCase(
         llm=LangChainLLMAdapter(build_chat_model("planner")),
         reporter=print,
@@ -529,6 +534,7 @@ def _execute_one(
 
     orchestrator = OrchestrateTaskUseCase(
         executor=executor,
+        analyzer=analyzer,
         debugger=debugger,
         fixer=fixer,
         validator=container.validator,
