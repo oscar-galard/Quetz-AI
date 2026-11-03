@@ -268,16 +268,18 @@ def _show_file_pager(path: str) -> None:
 
 def _edit_task_prompt(task: TaskSpec) -> str | None:
     """Let the user rewrite the task prompt. Returns new prompt or None to cancel."""
-    import tempfile
-    print(f"\n   Current prompt for {task.id}:")
-    print(f"   {'─' * 40}")
+    print(f"\n   Task {task.id}: {task.title}")
+    print(f"   Goal: {task.goal}")
+    if task.layer:
+        print(f"   Layer: {task.layer}")
+    print(f"\n   Current prompt:")
+    print(f"   {'─' * 50}")
     for line in task.prompt.splitlines():
         print(f"   {line}")
-    print(f"   {'─' * 40}")
-
-    print(f"\n   Type new prompt (or press Enter to keep current, 'cancel' to abort):")
+    print(f"   {'─' * 50}")
+    print(f"   Edit the prompt to change what the executor does for this task.")
+    print(f"   Type new prompt (or press Enter to keep current, 'cancel' to abort):")
     try:
-        _flush_stdin()
         new_prompt = input("   › ").strip()
     except (EOFError, KeyboardInterrupt):
         return None
@@ -648,7 +650,6 @@ def _run_goal(
         answers = []
         for q in plan.questions:
             try:
-                _flush_stdin()
                 answer = input("   › ").strip()
             except (EOFError, KeyboardInterrupt):
                 answer = ""
@@ -718,7 +719,6 @@ def _run_goal(
             if not remaining:
                 continue
 
-            _flush_stdin()
             while True:
                 try:
                     choice = input(
