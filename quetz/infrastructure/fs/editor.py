@@ -151,8 +151,10 @@ class AtomicEditor:
 
             return ApplyResult(ok=False, error=f"Unsupported edit operation: {edit.op!r}")
 
-        # Strip unused imports before writing (prevents TS6133 errors)
+        # Strip leaked line-number prefixes and unused imports before writing
         for rel_path in final_contents:
+            if rel_path.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".css", ".html")):
+                final_contents[rel_path] = self._normalize_content(final_contents[rel_path])
             if rel_path.endswith((".py", ".ts", ".tsx", ".js", ".jsx")):
                 final_contents[rel_path] = self._strip_unused_imports(
                     final_contents[rel_path], rel_path
@@ -183,6 +185,18 @@ class AtomicEditor:
     def revert(self, result: ApplyResult) -> None:
         for rel_path, original in result.originals.items():
             self._restore(rel_path, original)
+
+    @staticmethod
+    def _normalize_content(content: str) -> str:
+        """Strip leaked line-number prefixes from code content.
+
+        The context display shows '  1 | code' and models sometimes copy
+        these prefixes into content fields (for append/prepend/create).
+        """
+        import re as _re
+        lines = content.split("\n")
+        stripped = [_re.sub(r"^\s*\d+\s*\|\s?", "", line) for line in lines]
+        return "\n".join(stripped)
 
     @staticmethod
     def _fuzzy_find(
