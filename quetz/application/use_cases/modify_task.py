@@ -83,6 +83,7 @@ class ModifierUseCase:
         spec: ChangeSpec,
         *,
         conventions: str = "",
+        skills: str = "",
     ) -> ExecutionResult:
         """Apply all changes in the spec, grouped by file."""
         history = ModifierHistory()
@@ -112,6 +113,7 @@ class ModifierUseCase:
                     file_content=content,
                     progress=history.render(),
                     conventions=conventions,
+                    skills=skills,
                 )
 
                 try:

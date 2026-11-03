@@ -52,8 +52,9 @@ def build_analyzer_messages(
     code_files: dict[str, str],
     goal: str,
     conventions: str = "",
+    skills: str = "",
 ) -> list[Turn]:
-    """Build an analysis prompt: code + goal → ChangeSpec."""
+    """Build an analysis prompt: code + goal + skills → ChangeSpec."""
     parts = [
         "## IMPROVEMENT GOAL",
         goal,
@@ -67,6 +68,8 @@ def build_analyzer_messages(
 
     if conventions.strip():
         parts.extend(["", "## CONVENTIONS", conventions])
+    if skills.strip():
+        parts.extend(["", "## STACK SKILLS (follow these patterns)", skills.strip()])
 
     parts.extend([
         "",

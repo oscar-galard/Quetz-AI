@@ -34,8 +34,9 @@ def build_modifier_messages(
     file_content: str,
     progress: str = "",
     conventions: str = "",
+    skills: str = "",
 ) -> list[Turn]:
-    """Build a modifier prompt: one change + current file + progress."""
+    """Build a modifier prompt: one change + current file + progress + skills."""
     lines = file_content.split("\n")
     numbered = [f"{i+1:4d} | {line}" for i, line in enumerate(lines)]
 
@@ -54,6 +55,8 @@ def build_modifier_messages(
 
     if conventions.strip():
         parts.extend(["", "## CONVENTIONS", conventions])
+    if skills.strip():
+        parts.extend(["", "## STACK SKILLS (follow these patterns)", skills.strip()])
 
     parts.extend([
         "",

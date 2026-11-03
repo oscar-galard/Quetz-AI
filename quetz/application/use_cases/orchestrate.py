@@ -127,7 +127,8 @@ class Orchestrator:
             changed_paths=list(task.files),
             workspace=str(self._editor.workspace),
             goal=task.prompt,
-            conventions=task.conventions,
+            conventions=task.conventions or state.context.conventions,
+            skills=state.context.skills,
         )
         if spec is None:
             self._report("  ⚠️  Analyzer produced no spec — falling back to executor.")
@@ -139,7 +140,11 @@ class Orchestrator:
             return self._run_creator(state)
 
         self._report("📝 Modifier: applying changes...")
-        return self._modifier.apply_spec(task, spec, conventions=task.conventions)
+        return self._modifier.apply_spec(
+            task, spec,
+            conventions=task.conventions or state.context.conventions,
+            skills=state.context.skills,
+        )
 
     def _run_creator(self, state: OrchestratorState) -> ExecutionResult:
         """Use Executor (local) for new code generation."""
