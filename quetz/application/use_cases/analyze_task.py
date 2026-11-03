@@ -1,7 +1,7 @@
-"""Analyzer use case: produce precise edit instructions for improvements.
+"""Analyzer use case: produce ChangeSpec (what to improve, not how).
 
-The analyzer uses a cloud model to look at existing code and produce targeted
-edits (find/replace pairs), not full file rewrites.
+The analyzer uses a cloud model to look at existing code and produce
+targeted change instructions. The executor turns those into actual edits.
 """
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Callable
 
 from quetz.application.prompts.analyzer import build_analyzer_messages
 from quetz.application.ports.llm import LLMPort
-from quetz.domain.edit import EditPlan, parse_edit_plan
+from quetz.domain.change_spec import ChangeSpec, parse_change_spec
 from quetz.domain.exceptions import EditError
 
 Reporter = Callable[[str], None]
@@ -37,8 +37,8 @@ class AnalyzerUseCase:
         workspace: str,
         goal: str,
         conventions: str = "",
-    ) -> EditPlan | None:
-        """Analyze code and return precise edit instructions."""
+    ) -> ChangeSpec | None:
+        """Analyze code and return a ChangeSpec."""
         code_files: dict[str, str] = {}
         for path in changed_paths:
             full = Path(workspace) / path
@@ -49,21 +49,18 @@ class AnalyzerUseCase:
             return None
 
         messages = build_analyzer_messages(code_files, goal, conventions)
-        self._report("🔍 Analyzer: producing precise edit instructions...")
+        self._report("🔍 Analyzer: producing change spec...")
 
         try:
             result = self._llm.invoke(messages)
-            plan = parse_edit_plan(result.content or "", "analyze")
-            if plan.blocked:
-                self._report(f"   ⚠️  Analyzer: {plan.reason}")
-                return None
-            self._report(f"   📝 Analyzer: {len(plan.edits)} precise edit(s)")
-            for edit in plan.edits:
-                if edit.op.value == "replace":
-                    self._report(f"      {edit.file}: replace {repr(edit.find[:60])}")
+            spec = parse_change_spec(result.content or "")
+            self._report(f"   📝 Analyzer: {len(spec.changes)} change(s)")
+            for c in spec.changes:
+                if c.action == "replace":
+                    self._report(f"      {c.file}: replace — {c.locate or c.instruction[:60]}")
                 else:
-                    self._report(f"      {edit.file}: {edit.op.value}")
-            return plan
+                    self._report(f"      {c.file}: {c.action} — {c.instruction[:60]}")
+            return spec
         except (EditError, Exception) as exc:
             self._report(f"   ⚠️  Analyzer failed: {exc}")
             return None

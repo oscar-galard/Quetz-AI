@@ -108,7 +108,7 @@ class AtomicEditor:
                         error=f"Replace edit for {rel_path!r} has an empty find anchor.",
                     )
 
-                # Try raw find first, then line-number-stripped find
+                # Try raw find first, then line-number-stripped, then fuzzy
                 find_text = edit.find
                 count = current.count(find_text)
                 if count == 0:
@@ -117,6 +117,13 @@ class AtomicEditor:
                         count = current.count(normalized)
                         if count > 0:
                             find_text = normalized
+
+                if count == 0:
+                    # Fuzzy: find the closest matching block
+                    fuzzy_content = self._fuzzy_find(current, edit.find, edit.replace)
+                    if fuzzy_content:
+                        final_contents[rel_path] = fuzzy_content
+                        continue
 
                 if count == 0:
                     preview = repr(edit.find[:120])
@@ -176,6 +183,41 @@ class AtomicEditor:
     def revert(self, result: ApplyResult) -> None:
         for rel_path, original in result.originals.items():
             self._restore(rel_path, original)
+
+    @staticmethod
+    def _fuzzy_find(
+        content: str, find: str, replace: str, threshold: float = 0.85
+    ) -> str | None:
+        """Find closest matching block in content and replace it.
+
+        Returns the new content if a fuzzy match was found, else None.
+        """
+        from difflib import SequenceMatcher
+
+        lines = content.split("\n")
+        find_lines = find.split("\n")
+        if not find_lines:
+            return None
+
+        best_ratio = 0.0
+        best_start = -1
+        find_len = len(find_lines)
+
+        for i in range(len(lines) - find_len + 1):
+            block = "\n".join(lines[i : i + find_len])
+            ratio = SequenceMatcher(None, find, block).ratio()
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_start = i
+
+        if best_ratio >= threshold and best_start >= 0:
+            new_lines = (
+                lines[:best_start]
+                + replace.split("\n")
+                + lines[best_start + find_len :]
+            )
+            return "\n".join(new_lines)
+        return None
 
     @staticmethod
     def _normalize_find(find: str) -> str:

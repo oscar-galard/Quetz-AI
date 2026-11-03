@@ -117,10 +117,24 @@ def render_context_bundle(bundle: ContextBundle) -> str:
         instruction,
         "",
         f"task: {bundle.task_id} — {bundle.title}",
+    ]
+
+    if bundle.improvement_spec.strip():
+        sections.extend([
+            "",
+            "## CHANGE SPEC (follow these precisely)",
+            bundle.improvement_spec.strip(),
+            "",
+            "For each change above: use 'replace' with an exact 'find' anchor",
+            "copied from the numbered file text below. Strip the line-number",
+            "prefixes (e.g., '  1 | ') before copying. Each change = one edit.",
+        ])
+
+    sections.extend([
         "",
         "## ALLOWED FILES",
         "\n\n".join(_render_file(f) for f in bundle.target_files) or "(none)",
-    ]
+    ])
 
     if bundle.interfaces.strip():
         sections.extend(["", "## INTERFACES YOU MAY RELY ON", bundle.interfaces.strip()])

@@ -49,6 +49,7 @@ class ContextBundle:
     omitted: tuple[str, ...] = ()
     memory: str = ""
     skills: str = ""
+    improvement_spec: str = ""
 
     def text_size(self) -> int:
         parts = [

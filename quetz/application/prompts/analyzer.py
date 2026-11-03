@@ -1,19 +1,50 @@
-"""Prompt for the Analyzer node — produce precise edit instructions."""
+"""Prompt for the Analyzer node — produce ChangeSpec (what to improve, not how)."""
 from __future__ import annotations
+
+import json
 
 from quetz.domain.model import Turn
 
+CHANGE_SPEC_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "changes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "file": {"type": "string"},
+                    "action": {"type": "string", "enum": ["replace", "append", "prepend"]},
+                    "locate": {"type": "string"},
+                    "instruction": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["file", "action", "instruction"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["summary", "changes"],
+    "additionalProperties": False,
+}
+
 ANALYZER_SYSTEM_PROMPT = (
-    "You are Quetz Analyzer. You receive existing code and an improvement goal.\n"
-    "Produce PRECISE, MINIMAL edit instructions — not full file rewrites.\n\n"
+    "You are Quetz Analyzer. You look at existing code and an improvement goal,\n"
+    "then produce a CHANGE SPEC: what to change and why.\n\n"
+    "You do NOT write find/replace code. You describe changes.\n"
+    "The Executor will write the actual code edits based on your spec.\n\n"
     "Rules:\n"
-    "1. Output ONLY valid JSON matching the edit-plan schema.\n"
-    "2. For existing files: use 'replace' with EXACT 'find' anchors from the code.\n"
-    "3. For new content: use 'append' or 'prepend'.\n"
-    "4. NEVER rewrite an entire file. Only change what the goal requires.\n"
-    "5. Each edit should be ONE logical change (e.g., change a className, add a style).\n"
-    "6. Keep find anchors SMALL (2-5 lines) but UNIQUE in the file.\n"
-    "7. If the goal is vague, make minimal sensible improvements — not a redesign.\n"
+    "1. Output ONLY valid JSON matching the schema.\n"
+    "2. For each change: specify the file, action (replace/append/prepend),\n"
+    "   a 'locate' description (which part of the code to find), and an\n"
+    "   'instruction' (what to change and why).\n"
+    "3. Be PRECISE about locations: quote the exact string or describe the\n"
+    "   exact element (e.g., 'the h2 with className text-5xl font-extrabold').\n"
+    "4. Keep changes MINIMAL — one logical change per item.\n"
+    "5. If the goal is vague, make sensible improvements — not a redesign.\n"
+    "6. NEVER include the full file content in 'instruction'.\n"
 )
 
 
@@ -22,7 +53,7 @@ def build_analyzer_messages(
     goal: str,
     conventions: str = "",
 ) -> list[Turn]:
-    """Build an analysis prompt: code + goal + conventions → precise edits."""
+    """Build an analysis prompt: code + goal → ChangeSpec."""
     parts = [
         "## IMPROVEMENT GOAL",
         goal,
@@ -39,11 +70,33 @@ def build_analyzer_messages(
 
     parts.extend([
         "",
-        "## INSTRUCTION",
-        "Analyze the code above and produce PRECISE edit instructions.",
-        "Use op='replace' with exact 'find' anchors (copy from the numbered lines,",
-        "strip the line numbers). Use op='append' for new content at end of file.",
-        "Each edit = one logical change. Do NOT rewrite entire files.",
+        "## OUTPUT FORMAT",
+        "Return JSON:",
+        json.dumps(CHANGE_SPEC_SCHEMA, indent=2),
+        "",
+        "## EXAMPLE",
+        json.dumps(
+            {
+                "summary": "Add gradient heading and glow to CTA",
+                "changes": [
+                    {
+                        "file": "src/components/Hero.tsx",
+                        "action": "replace",
+                        "locate": "the h2 element with text-5xl font-extrabold",
+                        "instruction": "Wrap the first sentence in a gradient text span: bg-gradient-to-r from-orange-400 to-orange-600 bg-clip-text text-transparent",
+                        "content": "",
+                    },
+                    {
+                        "file": "src/index.css",
+                        "action": "append",
+                        "locate": "",
+                        "instruction": "Add a glass card utility class",
+                        "content": ".glass { background: rgba(30,41,59,0.6); backdrop-filter: blur(12px); }",
+                    },
+                ],
+            },
+            indent=2,
+        ),
     ])
 
     return [

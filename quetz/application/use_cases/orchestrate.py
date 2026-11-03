@@ -113,58 +113,31 @@ class Orchestrator:
             return choice if choice in ("improve", "create") else "create"
 
     def _run_improver(self, state: OrchestratorState) -> ExecutionResult:
-        """Use Analyzer (cloud) for precise edits to existing files."""
+        """Analyzer (cloud) → ChangeSpec → Executor (local) → Editor."""
         task = state.task
         if self._analyzer is None or self._editor is None:
             return self._run_creator(state)
 
-        self._report("🔍 Analyzer: analyzing existing code...")
-        plan = self._analyzer.analyze(
+        # 1. Analyzer produces ChangeSpec (what to improve)
+        self._report("🔍 Analyzer: producing change spec...")
+        spec = self._analyzer.analyze(
             changed_paths=list(task.files),
             workspace=str(self._editor.workspace),
             goal=task.prompt,
             conventions=task.conventions,
         )
-
-        if plan is None or plan.blocked:
-            self._report("  ⚠️  Analyzer couldn't produce edits — falling back to executor.")
+        if spec is None:
+            self._report("  ⚠️  Analyzer produced no spec — falling back to executor.")
             return self._run_creator(state)
 
-        # Apply precise edits
-        applied = self._editor.apply(plan, task)
-        if not applied.ok:
-            self._report(f"  ⚠️  Edit apply failed: {applied.error}")
-            return ExecutionResult(
-                task_id=task.id, ok=False, status="blocked",
-                attempts=state.attempts, error=applied.error,
-            )
+        # 2. Inject spec into context for the executor
+        from dataclasses import replace as _replace
+        ctx_with_spec = _replace(state.context, improvement_spec=spec.render())
 
-        # Validate
-        if self._validator is None:
-            return ExecutionResult(
-                task_id=task.id, ok=True, status="done",
-                attempts=state.attempts, summary=plan.summary,
-                changed_paths=applied.changed_paths,
-            )
-
-        validation = self._validator.validate(
-            task, list(applied.changed_paths), skip_acceptance=False
-        )
-        if validation.ok:
-            self._report("  ✅ Analyzer: precise edits applied!")
-            return ExecutionResult(
-                task_id=task.id, ok=True, status="done",
-                attempts=state.attempts, summary=plan.summary,
-                changed_paths=applied.changed_paths, validation=validation,
-            )
-
-        # Validation failed — keep code on disk, let failure handler decide
-        self._report(f"  ❌ Validation failed: {validation.summary[:200]}")
-        return ExecutionResult(
-            task_id=task.id, ok=False, status="blocked",
-            attempts=state.attempts, error=validation.summary,
-            changed_paths=applied.changed_paths,
-        )
+        # 3. Executor (local) produces EditPlan from the spec
+        self._report("🦜 Executor: writing code from change spec...")
+        result = self._executor.execute(task, ctx_with_spec)
+        return result
 
     def _run_creator(self, state: OrchestratorState) -> ExecutionResult:
         """Use Executor (local) for new code generation."""
