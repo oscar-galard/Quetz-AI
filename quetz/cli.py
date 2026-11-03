@@ -508,6 +508,7 @@ def _execute_one(
     from quetz.application.use_cases.analyze_task import AnalyzerUseCase
     from quetz.application.use_cases.debug_task import DebuggerUseCase
     from quetz.application.use_cases.fixer import FixerUseCase
+    from quetz.application.use_cases.modify_task import ModifierUseCase
     from quetz.application.use_cases.orchestrate import Orchestrator
     from quetz.infrastructure.llm.factory import build_chat_model
     from quetz.infrastructure.llm.adapter import LangChainLLMAdapter
@@ -531,10 +532,17 @@ def _execute_one(
         llm=LangChainLLMAdapter(build_chat_model("executor")),
         reporter=print,
     )
+    modifier = ModifierUseCase(
+        llm=LangChainLLMAdapter(build_chat_model("executor")),
+        editor=container.make_editor(),
+        validator=container.validator,
+        reporter=print,
+    )
 
     orchestrator = Orchestrator(
         executor=executor,
         analyzer=analyzer,
+        modifier=modifier,
         debugger=debugger,
         fixer=fixer,
         validator=container.validator,

@@ -19,6 +19,7 @@ from quetz.application.use_cases.analyze_task import AnalyzerUseCase
 from quetz.application.use_cases.debug_task import DebuggerUseCase
 from quetz.application.use_cases.execute_task import ExecuteTaskUseCase
 from quetz.application.use_cases.fixer import FixerUseCase
+from quetz.application.use_cases.modify_task import ModifierUseCase
 from quetz.domain.context import ContextBundle
 from quetz.domain.edit import ExecutionResult
 from quetz.domain.task_spec import TaskSpec
@@ -56,6 +57,7 @@ class Orchestrator:
         *,
         executor: ExecuteTaskUseCase,
         analyzer: AnalyzerUseCase | None = None,
+        modifier: ModifierUseCase | None = None,
         debugger: DebuggerUseCase | None = None,
         fixer: FixerUseCase | None = None,
         validator: ValidationPort | None = None,
@@ -65,6 +67,7 @@ class Orchestrator:
     ) -> None:
         self._executor = executor
         self._analyzer = analyzer
+        self._modifier = modifier
         self._debugger = debugger
         self._fixer = fixer
         self._validator = validator
@@ -113,7 +116,7 @@ class Orchestrator:
             return choice if choice in ("improve", "create") else "create"
 
     def _run_improver(self, state: OrchestratorState) -> ExecutionResult:
-        """Analyzer (cloud) → ChangeSpec → Executor (local) → Editor."""
+        """Analyzer (cloud) → ChangeSpec → Modifier (local) → Editor."""
         task = state.task
         if self._analyzer is None or self._editor is None:
             return self._run_creator(state)
@@ -130,14 +133,13 @@ class Orchestrator:
             self._report("  ⚠️  Analyzer produced no spec — falling back to executor.")
             return self._run_creator(state)
 
-        # 2. Inject spec into context for the executor
-        from dataclasses import replace as _replace
-        ctx_with_spec = _replace(state.context, improvement_spec=spec.render())
+        # 2. Modifier (local) applies changes file-by-file with history
+        if self._modifier is None:
+            self._report("  ⚠️  Modifier not available — falling back to executor.")
+            return self._run_creator(state)
 
-        # 3. Executor (local) produces EditPlan from the spec
-        self._report("🦜 Executor: writing code from change spec...")
-        result = self._executor.execute(task, ctx_with_spec)
-        return result
+        self._report("📝 Modifier: applying changes...")
+        return self._modifier.apply_spec(task, spec, conventions=task.conventions)
 
     def _run_creator(self, state: OrchestratorState) -> ExecutionResult:
         """Use Executor (local) for new code generation."""
