@@ -110,7 +110,7 @@ INDEX_DB = os.environ.get("INDEX_DB", "index.db")
 
 DEFAULT_MAX_ATTEMPTS = int(os.environ.get("DEFAULT_MAX_ATTEMPTS", "5"))
 VALIDATION_TIMEOUT = int(os.environ.get("VALIDATION_TIMEOUT", "300"))
-AUTO_COMMIT = _bool_env("AUTO_COMMIT", True)
+AUTO_COMMIT = _bool_env("AUTO_COMMIT", False)
 GIT_BRANCH_PREFIX = os.environ.get("GIT_BRANCH_PREFIX", "quetz/")
 
 # Map LANGSMITH_* environment variables to LANGCHAIN_* equivalents for LangChain/LangSmith SDK compatibility
